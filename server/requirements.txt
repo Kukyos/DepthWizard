@@ -1,0 +1,41 @@
+# DepthWizard server dependencies. Python 3.14.
+#
+# torch is deliberately NOT pinned here. The CUDA build must come from PyTorch's own
+# index, not PyPI, or pip silently installs the CPU build -- which is exactly the state
+# this machine was found in (D-01 in docs/11-deferred.md). run.ps1 -Setup installs it
+# explicitly from the cu130 index before installing this file.
+
+# --- raster and geospatial -------------------------------------------------
+# rasterio carries its own GDAL wheels on Windows, so no separate GDAL install.
+rasterio>=1.5.1
+pyproj>=3.7            # CRS handling and the EGM96/WGS84 datum conversion (U-07)
+affine>=2.4
+
+# --- arrays and imaging ----------------------------------------------------
+numpy>=2.5
+scipy>=1.18             # resampling, morphology for shadow detection
+pillow>=12.0
+opencv-python-headless>=5.0   # headless: no GUI deps on a server
+h5py>=3.12              # GAMUS ships HDF5; dataset key is 'image' in all three dirs
+
+# --- solar geometry --------------------------------------------------------
+# For the shadow anchor h = L*tan(theta). A published algorithm, not hand-rolled
+# trigonometry -- see U-06 in docs/10-unsourced.md.
+pvlib>=0.11
+
+# --- model -----------------------------------------------------------------
+# Depth Anything V2 is distributed through transformers.
+transformers>=4.46
+safetensors>=0.4
+
+# --- server ----------------------------------------------------------------
+fastapi>=0.141
+uvicorn[standard]>=0.52
+python-multipart>=0.0.9   # file upload
+python-dotenv>=1.0
+
+# --- mesh export -----------------------------------------------------------
+trimesh>=4.5              # glTF export for the viewer
+
+# --- tests -----------------------------------------------------------------
+pytest>=8.3

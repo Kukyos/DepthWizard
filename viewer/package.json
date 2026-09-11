@@ -1,0 +1,27 @@
+{
+  "name": "depthwizard-viewer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "3D flythrough viewer for DepthWizard elevation models",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "check": "tsc --noEmit && node check.mjs",
+    "electron": "electron electron/main.cjs",
+    "package": "npm run build && electron-builder"
+  },
+  "dependencies": {
+    "@babylonjs/core": "9.26.0",
+    "@babylonjs/gui": "9.26.0",
+    "@babylonjs/loaders": "9.26.0"
+  },
+  "devDependencies": {
+    "@babylonjs/inspector": "9.26.0",
+    "electron": "44.3.0",
+    "electron-builder": "^26.15.3",
+    "typescript": "5.9.3",
+    "vite": "8.3.0"
+  }
+}

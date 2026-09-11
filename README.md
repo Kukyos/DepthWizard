@@ -1,0 +1,142 @@
+# DepthWizard
+
+**Smart India Hackathon 2026 · PS 26175 — Single-View Height Estimation and 3D Flythrough**
+Indian Space Research Organisation · Department of Space
+
+Turn **one** optical satellite image into an elevation model, then fly through it in 3D.
+
+A single nadir photograph records colour, not height. DepthWizard estimates the height of
+everything in it, writes a Digital Surface Model as a GeoTIFF you can open in any GIS, and
+renders the result as navigable 3D terrain with the original image projected onto it.
+
+Georeferenced input produces **absolute heights in metres**. Non-georeferenced input produces
+**relative heights with no metric claim anywhere** — because without a coordinate system and a
+pixel size, metres are unknowable, and inventing them would be fabrication.
+
+---
+
+## Status
+
+**Scaffolded, 2026-09-11.** Documentation and project structure are in place; the pipeline is
+not written yet. `docs/11-deferred.md` is the live status document and says exactly what exists.
+
+No accuracy figures are published anywhere in this repository, because none have been measured.
+See `docs/04-targets.md` for what will be measured and `docs/08-rules-and-conventions.md` rule 1
+for why we will not quote a number before then.
+
+---
+
+## Run it
+
+```powershell
+git clone https://github.com/Kukyos/DepthWizard.git
+cd DepthWizard
+.\run.ps1 -Setup     # once — installs dependencies, checks CUDA
+.\run.ps1            # start the server and the viewer
+.\run.ps1 -Test      # unit tests, then the eval harness
+.\run.ps1 -Check     # environment report only, no installs
+```
+
+| | |
+|---|---|
+| Viewer | http://localhost:5173 |
+| Server health | http://localhost:8000/api/health |
+
+No Docker. No database. The pipeline runs offline; no API key is required for the core paths.
+
+---
+
+## How it works
+
+```
+image ──▶ ingest ──▶ backbone ──▶ head ──▶ calibrate ──▶ DSM ──▶ mesh ──▶ viewer
+          GSD norm   Depth        nDSM      SRTM /        GeoTIFF  height   Babylon.js
+          CRS read   Anything V2  metres    shadow /      + prov.  field    + Electron
+                                  AGL       GCP fusion
+```
+
+### The one idea worth knowing
+
+Terrain and objects are estimated **separately**:
+
+```
+DSM  =  DTM  +  nDSM
+        SRTM    predicted by the network
+        30 m    at image resolution
+```
+
+Nothing in a single image encodes absolute elevation above sea level, so we never ask the
+network for it. Free global SRTM data is far too coarse to see a building but entirely correct
+about whether a neighbourhood sits at 340 m or 900 m. The network is good at "this roof is 12 m
+above the street in front of it" and hopeless at elevation above sea level. Each source does
+only what it is actually capable of.
+
+The recommended dataset agrees: GAMUS ships its height layer as **AGL — above ground level** —
+so the officially recommended training data trains the `nDSM` term specifically.
+
+### Getting to metres
+
+Relative depth carries no units. Three independent anchors supply them, and cross-check each
+other — agreement narrows the confidence band, disagreement widens it and is reported:
+
+1. **SRTM terrain** — free global coarse elevation supplies the ground surface.
+2. **Shadow geometry** — `h = L·tan(θ)`. Plane geometry, no learning: a structure's shadow
+   length and the solar elevation angle give its height in metres directly, from a single image,
+   needing no external elevation data at all.
+3. **Ground control points** — a robust fit where a few known elevations exist.
+
+### Knowing when to refuse
+
+Height accuracy is a function of pixel size. At 0.33 m per pixel a building spans tens of
+pixels and its shadow is measurable. At several metres per pixel it spans under two, and the
+height information is **not present in the data**. A model will still emit a confident number.
+
+So GSD is read from the file, normalised before inference, reported as a separate accuracy axis
+— and below a measured floor the system outputs terrain only and says so. Refusing is a
+feature.
+
+---
+
+## Documentation
+
+`docs/` is the primary output of this project, not an afterthought.
+
+| File | What's in it |
+|---|---|
+| `00-start-here.md` | The map. Read first. |
+| `01-problem-statement.md` | The official text, verbatim. Source of truth. |
+| `02-product.md` | What this is, in plain language, with a walkthrough. |
+| `03-requirements.md` | Five gates, must-haves, lose conditions. |
+| `04-targets.md` | What we measure, how we stratify it, the eval harness spec. |
+| `05-domain-reference.md` | Glossary, the domain-gap explanation, measured dataset facts. |
+| `06-decisions.md` | Decided vs open. |
+| `07-build-plan.md` | Phase order. |
+| `08-rules-and-conventions.md` | The eight hard rules. |
+| `09-architecture.md` | How the pieces fit. |
+| `10-unsourced.md` | Every value we could not source, and where the real one comes from. |
+| `11-deferred.md` | **The live status document.** |
+| `13-eval-results.md` | Generated by the harness. Never hand-edited. Absent until it first runs. |
+
+---
+
+## Data
+
+| | |
+|---|---|
+| Training | [GAMUS](https://huggingface.co/datasets/earthflow/GAMUS) — recommended by the organisation's [reference repo](https://github.com/IMG-PROCESS-SAC/SIH2026). 0.33 m GSD, 1024×1024 tiles, LiDAR-derived nDSM in metres AGL, CC-BY-4.0, ~80 GB. |
+| Terrain | SRTM 30 m |
+| Backbone | Depth Anything V2 |
+
+Nothing under `data/` is committed.
+
+**A known gap, stated plainly:** the GAMUS HuggingFace mirror covers Washington DC, New York
+City and Philadelphia — all flat East-Coast US urban. It contains no hilly or forested terrain,
+while the evaluation criteria require demonstrated stability across urban, sparse, hilly **and**
+forested landscapes. Supplementary data is required; until it exists those rows read `NO DATA`
+rather than an estimate. Tracked as D-02 in `docs/11-deferred.md`.
+
+---
+
+## Licence
+
+Source code: see `LICENCE`. GAMUS is CC-BY-4.0 and is not redistributed here.

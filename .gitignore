@@ -1,0 +1,49 @@
+# local assistant config, not part of the project
+CLAUDE.md
+.claude/
+graphify-out/
+
+# secrets
+.env
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+*.egg-info/
+
+# node
+node_modules/
+dist/
+dist-electron/
+release/
+*.log
+
+# data — GAMUS alone is 80 GB. Nothing under data/ is ever committed.
+data/
+
+# model weights, checkpoints and training runs
+*.pth
+*.ckpt
+*.safetensors
+*.onnx
+runs/
+lightning_logs/
+wandb/
+
+# generated rasters and meshes
+out/
+*.tif.aux.xml
+*.glb
+
+# os
+.DS_Store
+Thumbs.db
+
+# build artefacts
+*.tsbuildinfo
+
+# draft submission material, local only
+submission/
