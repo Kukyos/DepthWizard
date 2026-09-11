@@ -5,7 +5,7 @@ demands stability across four landscape types. So we set our own targets and the
 them.
 
 **Nothing in this file is a measured result.** Measured results live in
-`13-eval-results.md`, written by the harness. This file says what we will measure and what
+`12-eval-results.md`, written by the harness. This file says what we will measure and what
 would count as good. Hard rule 1.
 
 ---
@@ -53,7 +53,7 @@ means uniformly distributed error. Report both, and report the gap.
 
 ### Always reported with a metric
 
-A bare number is not a result. Every row in `13-eval-results.md` carries: pixel count, the
+A bare number is not a result. Every row in `12-eval-results.md` carries: pixel count, the
 split it came from, the landscape class, the GSD band, and the calibration method.
 
 ---
@@ -187,7 +187,7 @@ python -m eval.run_eval
 2. Runs the full pipeline per tile, exactly as a user would — no privileged access to
    reference data at inference.
 3. Computes every metric above, per landscape class and per GSD band.
-4. Writes `docs/13-eval-results.md`, including the git commit, date, weights hash and
+4. Writes `docs/12-eval-results.md`, including the git commit, date, weights hash and
    configuration, so any number in it can be traced to the code that produced it.
 5. Exits non-zero if a regression gate is breached, so `run.ps1 -Test` catches it.
 

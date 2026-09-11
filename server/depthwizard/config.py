@@ -42,7 +42,7 @@ SAMPLES_DIR = _env_path("SAMPLES_DIR", "data/samples")
 DOCS_DIR = ROOT / "docs"
 
 # The harness writes here. Never hand-edited (hard rule 1).
-EVAL_RESULTS = DOCS_DIR / "13-eval-results.md"
+EVAL_RESULTS = DOCS_DIR / "12-eval-results.md"
 
 
 # ----------------------------------------------------------------- ground sampling

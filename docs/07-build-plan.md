@@ -7,7 +7,7 @@ Principle: **the eval harness and the honest baseline come before the model work
 Everything else is replaceable; the ability to measure is the product.
 
 > This file is the **plan**, not the tracker. For what is actually outstanding read
-> `11-deferred.md`; for measured numbers, `13-eval-results.md`.
+> `11-deferred.md`; for measured numbers, `12-eval-results.md`.
 
 ---
 
@@ -52,7 +52,7 @@ No UI, no fine-tuning, no calibration. All of it testable.
       possible at all.
 - [ ] **`eval/` — the harness.** Both splits (official and leave-one-city-out), every metric
       in `04-targets.md`, per landscape class and per GSD band. Writes
-      `docs/13-eval-results.md`. Exits non-zero on a regression gate.
+      `docs/12-eval-results.md`. Exits non-zero on a regression gate.
 - [ ] **Measure and commit the zero-shot baseline, however bad it is.**
 
 **Milestone:** one command turns a GeoTIFF into a GeoTIFF, and one command prints RMSE, MAE

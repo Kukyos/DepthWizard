@@ -150,7 +150,7 @@ explicit and logged rather than implicit.
 US urban. The paper describes five cities including Jacksonville and Oklahoma, but those are
 **absent from the mirror**. There is no hilly and no forested terrain in what we can download.
 
-**Current state:** hilly and forested rows in `13-eval-results.md` will read
+**Current state:** hilly and forested rows in `12-eval-results.md` will read
 `NO DATA — see 11-deferred.md`. **We will not estimate them.**
 
 **How to source it.** Phase 0 task O2 — assess DFC2019/US3D (Jacksonville and Omaha add relief),

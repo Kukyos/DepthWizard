@@ -90,7 +90,7 @@ attached and no metric labelling. One writer, one reader, no second format to ma
 
 ### D11 — Docs are the primary output, numbered as in PS 26047
 **Decided 2026-09-11.** Carried over deliberately: it is the convention that made the
-previous project defensible under questioning. `13-eval-results.md` is generated and never
+previous project defensible under questioning. `12-eval-results.md` is generated and never
 hand-edited; `10-unsourced.md` and `11-deferred.md` are updated in the same pass as the
 shortcut that created the entry.
 
@@ -140,6 +140,16 @@ Revisit if empirical coverage fails the calibration check in `04-targets.md`.
 **Default:** start with Babylon's heightmap ground, which is one call. Move to a tiled
 quadtree only when tile size demands it, and confirm the DynamicTerrain extension's current
 package name before relying on it.
+
+### O9 — What licence does the source code carry?
+**Blocks:** nothing technical, but the repository is public and currently **unlicensed**,
+which means default copyright applies and nobody may legally reuse it. SIH submissions are
+usually expected to be shareable.
+**Default until answered:** none. A licence is a legal choice with real consequences and is
+the project owner's to make, not a default to guess at. The README states the position
+plainly rather than pointing at a file that does not exist.
+**Route:** pick one (MIT and Apache-2.0 are the usual choices for a hackathon submission;
+Apache-2.0 additionally grants patent rights), add `LICENCE`, and update the README.
 
 ### O8 — Does the standalone bundle include inference?
 **Default:** two tiers. Viewer-only Electron installer is **committed**; the full bundle

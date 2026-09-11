@@ -13,7 +13,7 @@ Correctness here is invisible — a height map can be entirely wrong and look pe
 plausible. So a number that did not come from the harness is not evidence, it is a feeling.
 
 *In practice:* every figure in a doc, a slide or a README traces to a harness run.
-`13-eval-results.md` is generated and never hand-edited. If we have not measured it, the
+`12-eval-results.md` is generated and never hand-edited. If we have not measured it, the
 doc says `NOT MEASURED`, not an estimate.
 
 ### 2. Relative and absolute are never visually confused
@@ -117,7 +117,7 @@ One file is generated:
 
 | File | Rule |
 |---|---|
-| `13-eval-results.md` | Written by `eval/run_eval.py`. **Never hand-edited.** |
+| `12-eval-results.md` | Written by `eval/run_eval.py`. **Never hand-edited.** |
 
 ## Repo hygiene
 

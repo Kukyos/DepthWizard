@@ -124,7 +124,7 @@ server/
     mesh.py        DSM -> heightfield/glTF, LOD, texture tiles
     api.py         FastAPI
   train/           datasets.py, train_head.py — identical local and cloud  [D4]
-  eval/            run_eval.py, scenes.py, metrics.py — writes 13-eval-results.md
+  eval/            run_eval.py, scenes.py, metrics.py — writes 12-eval-results.md
   tools/           fetch_datasets.py, fetch_srtm.py
   tests/           test_raster.py is the non-negotiable one
 ```
@@ -204,7 +204,7 @@ Deliberately **outside** the pipeline, entering at the same place a user does:
                                     metrics, per landscape class and GSD band
                                                             │
                                                             ▼
-                                              docs/13-eval-results.md
+                                              docs/12-eval-results.md
 ```
 
 It gets no privileged access to reference data and no special inference path (hard rule 4).
