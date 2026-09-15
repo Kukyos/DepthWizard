@@ -5,8 +5,13 @@ tracker.** `07-build-plan.md` is the plan and is allowed to go stale; this file 
 
 Updated in the same pass as the shortcut that created the entry. Never in a cleanup at the end.
 
-Status as of **2026-09-15**. The Phase 1 spine runs end to end on real imagery:
-image -> Depth Anything V2 -> GeoTIFF + provenance -> textured 3D scene.
+Status as of **2026-09-15**. Phase 1 is complete and Phase 3 is under way. A real
+satellite tile goes through a fine-tuned Depth Anything V2 on the GPU, out as a GeoTIFF in
+**metres above ground** with provenance, and into the viewer as textured 3D terrain with
+slope, contour and error-vs-reference overlays, a height probe and an upload flow.
+
+Phase 2 (scale calibration to absolute elevation) has not started, so output is AGL, not
+elevation above sea level. See D-05.
 
 ---
 
@@ -44,23 +49,29 @@ validation set.
 
 | Item | Phase | State |
 |---|---|---|
-| `io_raster.py` + `tests/test_raster.py` | 1 | CRS/transform round-trip proven exact, 12 tests |
+| `io_raster.py` + `tests/test_raster.py` | 1 | CRS/transform round-trip proven exact |
 | `backbone.py` — Depth Anything V2 | 1 | Runs on CUDA; Base default, Small/Large available |
 | `dsm.py` — orchestrator + provenance | 1 | One image in, GeoTIFF + sidecar out |
-| `mesh.py` — scene export for the viewer | 4 | manifest + float32 heightfield + texture |
-| Viewer loads a real scene | 4 | Texture draped, 3 cameras, probe, units badge |
-| `tools/fetch_datasets.py` | 0 | Resumable, retrying, keeps layers aligned |
+| `eval/` — the harness | 1 | Both metric and relative paths; per-class; pinned split |
+| `head.py` + `train/` — metric height head | 3 | Backbone frozen, decoder retrained, 11% of params |
+| `shadow.py` — ray-cast + differentiable | 2 | Geometry checked against trigonometry, 10 tests |
+| `overlays.py` — slope, contours, error | 4 | Computed server-side, swapped as textures |
+| `mesh.py` — scene export | 4 | manifest + heightfield + texture + overlays |
+| `api.py` — upload, process, download | 4 | Refusals tested; CORS localhost-only |
+| Viewer | 4 | Texture draped, 3 cameras, probe, layer switch, upload |
+| `tools/fetch_datasets.py` | 0 | Phased, resumable, retrying |
 | `tools/resolve_class_legend.py` | 0 | Resolved D-04 from evidence |
 
-**End to end works on real imagery**: a GAMUS tile through Depth Anything V2 to a GeoTIFF
-with provenance, exported to a textured, navigable 3D scene.
+**End to end works on real imagery**, including the trained path: a GAMUS tile through the
+fine-tuned decoder to a GeoTIFF in metres above ground, exported to a navigable 3D scene
+with a working height probe and error overlay.
 
 ## Not started
 
 | Item | Phase | Note |
 |---|---|---|
 | `ingest.py` GSD normalise + tiling | 1 | Not needed yet; inputs so far are single 1024² tiles |
-| **Eval harness, both splits, all metrics** | 1 | `dsm.py` scores one tile; the harness is the real deliverable |
+| Leave-one-city-out evaluation | 1 | **Blocked on data**: only DC tiles have downloaded so far (D-06) |
 | `srtm.py` with datum handling | 2 | See U-07 — the datum trap is tens of metres |
 | `shadow.py` | 2 | Our primary novelty. Blocked on D-03 for validation |
 | `gcp.py` | 2 | |
@@ -70,6 +81,17 @@ with provenance, exported to a textured, navigable 3D scene.
 | Overlays, validation view, upload UI | 4 | Viewer currently loads a pre-exported scene only |
 | `api.py` | 4 | No server yet; export is a CLI step |
 | Electron installers | 5 | |
+
+### D-06 · Only one city has downloaded
+**Severity: blocks the honest transfer number.** The download fetches tiles alphabetically
+within a split, so every tile on disk is Washington DC; Philadelphia begins after all 359 DC
+val tiles. Until then, leave-one-city-out cannot run and every figure comes from a
+**within-city pilot split**, which shares scene appearance between train and validation and
+therefore overstates generalisation.
+
+*Interim behaviour:* pilot numbers are labelled as pilot numbers everywhere they appear, and
+the training script prints a warning banner. They are for checking that training converges.
+*Fix:* wait for PHL tiles, then `--held-out-city PHL`.
 
 ### D-05 · No absolute heights yet
 Phase 2 calibration does not exist, so **every output is relative**, including for a
