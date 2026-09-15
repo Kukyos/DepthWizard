@@ -31,7 +31,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from depthwizard import backbone, config, dsm  # noqa: E402
+from depthwizard import backbone, config, head  # noqa: E402
 from eval import metrics  # noqa: E402
 from eval.scenes import Tile, discover  # noqa: E402
 
@@ -45,8 +45,33 @@ def _git_commit() -> str:
         return "unknown"
 
 
-def evaluate(tiles: list[Tile], size: str, stub: bool) -> dict:
-    """Run the pipeline over every tile and score it, pooled and per class."""
+def predict_trained(model, processor, device, rgb):
+    """Metric nDSM from the fine-tuned decoder, on the source grid."""
+    import torch
+
+    mean = torch.tensor(processor.image_mean).view(1, 3, 1, 1)
+    std = torch.tensor(processor.image_std).view(1, 3, 1, 1)
+    x = head.normalise(rgb[None], mean, std).to(device)
+    with torch.no_grad():
+        pred = model(pixel_values=x).predicted_depth
+    pred = torch.nn.functional.interpolate(
+        pred.unsqueeze(1), size=rgb.shape[:2], mode="bilinear", align_corners=False)
+    return pred.squeeze().float().cpu().numpy()
+
+
+def evaluate(tiles: list[Tile], size: str, stub: bool, weights: str | None = None) -> dict:
+    """Run the pipeline over every tile and score it, pooled and per class.
+
+    With `weights`, the fine-tuned decoder runs and its output is **metric** -- metres above
+    ground -- so absolute RMSE, MAE and bias become defined. Without, it is the zero-shot
+    backbone and only scale-free measures are reported. The `metric` flag below is what
+    keeps those two cases from being confused.
+    """
+    trained = None
+    if weights:
+        model, processor, device, counts = head.load_trained(size, weights)
+        trained = (model, processor, device)
+        print(f"  loaded trained decoder from {weights} on {device}")
     per_class: dict[str, list] = {}
     pooled: list = []
     rows: list[dict] = []
@@ -54,12 +79,16 @@ def evaluate(tiles: list[Tile], size: str, stub: bool) -> dict:
     for i, tile in enumerate(tiles, 1):
         print(f"  [{i}/{len(tiles)}] {tile.stem}", flush=True)
         rgb = tile.rgb()
-        result = (backbone.estimate_stub(rgb) if stub
-                  else backbone.estimate_relative_depth(rgb, size))
-        pred, ref, cls = result.relative, tile.agl(), tile.cls()
+        if trained:
+            pred = predict_trained(*trained, rgb)
+            is_metric = True
+        else:
+            result = (backbone.estimate_stub(rgb) if stub
+                      else backbone.estimate_relative_depth(rgb, size))
+            pred, is_metric = result.relative, False
+        ref, cls = tile.agl(), tile.cls()
 
-        # Phase 1 output is relative, so metric=False and the absolute fields stay None.
-        overall = metrics.score(pred, ref, metric=False)
+        overall = metrics.score(pred, ref, metric=is_metric)
         if overall is None:
             print("        skipped -- not enough valid data")
             continue
@@ -73,7 +102,7 @@ def evaluate(tiles: list[Tile], size: str, stub: bool) -> dict:
             mask = cls == index
             if mask.sum() < 500:
                 continue
-            scored = metrics.score(pred, ref, metric=False, mask=mask)
+            scored = metrics.score(pred, ref, metric=is_metric, mask=mask)
             if scored is None:
                 continue
             per_class.setdefault(name, []).append(scored)
@@ -85,6 +114,8 @@ def evaluate(tiles: list[Tile], size: str, stub: bool) -> dict:
         "rows": rows,
         "pooled": metrics.aggregate(pooled),
         "per_class": {k: metrics.aggregate(v) for k, v in per_class.items()},
+        "metric": bool(weights),
+        "weights": weights,
     }
 
 
@@ -104,7 +135,9 @@ def render(results: dict, tiles: list[Tile], size: str, stub: bool) -> str:
         "",
         "| | |",
         "|---|---|",
-        f"| Backbone | `{backbone.CHECKPOINTS.get(size, 'stub')}`, frozen, zero-shot |",
+        f"| Backbone | `{backbone.CHECKPOINTS.get(size, 'stub')}` |",
+        (f"| Decoder | **fine-tuned**, `{results['weights']}` |" if results["metric"]
+         else "| Decoder | pre-trained, **zero-shot** |"),
         "| Calibration | **none** — Phase 2 not built |",
         f"| Tiles | {len(results['rows'])} |",
         f"| Cities | {', '.join(cities) or 'none'} |",
@@ -116,16 +149,36 @@ def render(results: dict, tiles: list[Tile], size: str, stub: bool) -> str:
         lines += ["> **STUB RUN — the backbone did not execute.** These numbers describe a "
                   "deterministic placeholder and are not a result.", ""]
 
-    lines += [
-        "## Absolute accuracy",
-        "",
-        "**Not measured.** The pipeline outputs relative heights until scale calibration "
-        "exists (D-05), so RMSE, MAE and bias in metres are undefined. Reporting them would "
-        "mean inventing a scale. Scale-free agreement is below.",
-        "",
-        "## Scale-free agreement with LiDAR",
-        "",
-    ]
+    lines += ["## Absolute accuracy", ""]
+    if results["metric"] and pooled and pooled.get("rmse") is not None:
+        lines += [
+            "The fine-tuned decoder regresses metres above ground directly, so absolute "
+            "error is defined here without any calibration step.",
+            "",
+            "| Scope | RMSE (m) | MAE (m) | bias (m) | delta-1 |",
+            "|---|---|---|---|---|",
+            f"| **All pixels** | **{pooled['rmse']:.2f}** | {pooled['mae']:.2f} | "
+            f"{pooled['bias']:+.2f} | "
+            + (f"{pooled['delta1']:.3f} |" if pooled.get("delta1") is not None else "— |"),
+        ]
+        for name, agg in sorted(results["per_class"].items(),
+                                key=lambda kv: (kv[1] or {}).get("rmse", 9e9)):
+            if not agg or agg.get("rmse") is None:
+                continue
+            lines.append(
+                f"| {name} | {agg['rmse']:.2f} | {agg['mae']:.2f} | {agg['bias']:+.2f} | "
+                + (f"{agg['delta1']:.3f} |" if agg.get("delta1") is not None else "— |"))
+        lines += ["", "Bias is mean(pred - reference): a constant offset is a calibration "
+                  "bug and fixable, scatter is a model limit. They are the same RMSE and "
+                  "different problems.", ""]
+    else:
+        lines += [
+            "**Not measured.** The zero-shot backbone outputs relative heights, so RMSE, MAE "
+            "and bias in metres are undefined. Reporting them would mean inventing a scale. "
+            "Scale-free agreement is below.",
+            "",
+        ]
+    lines += ["## Scale-free agreement with LiDAR", ""]
 
     if not pooled:
         lines += ["No tiles scored.", ""]
@@ -199,6 +252,7 @@ def main() -> int:
     parser.add_argument("--size", choices=sorted(backbone.CHECKPOINTS),
                         default=backbone.DEFAULT_SIZE)
     parser.add_argument("--stub", action="store_true", help="skip the model; NOT a result")
+    parser.add_argument("--weights", help="fine-tuned decoder checkpoint; output becomes metric")
     parser.add_argument("--out", default=str(config.EVAL_RESULTS))
     args = parser.parse_args()
 
@@ -209,7 +263,7 @@ def main() -> int:
         return 1
 
     print(f"evaluating {len(tiles)} tiles from '{args.split}'")
-    results = evaluate(tiles, args.size, args.stub)
+    results = evaluate(tiles, args.size, args.stub, args.weights)
     if not results["rows"]:
         print("nothing scored")
         return 1
