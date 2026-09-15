@@ -17,6 +17,7 @@ model to predict the clamp.
 
 from __future__ import annotations
 
+import hashlib
 import sys
 from pathlib import Path
 
@@ -104,8 +105,17 @@ def splits(root: Path, held_out_city: str | None = None, limit: int | None = Non
         return train, val
 
     if not train and allow_pilot and val:
-        cut = max(1, int(len(val) * 0.8))
-        train, val = val[:cut], val[cut:]
+        # Assign by a hash of the tile name, NOT by position. An index-based cut moves every
+        # time another tile finishes downloading, so a tile trained on yesterday becomes a
+        # validation tile today and the score is quietly contaminated. Hashing the stem is
+        # stable no matter what is on disk or in what order it arrived -- which is what hard
+        # rule 4 means by declaring the split once.
+        def held_out(tile: Tile) -> bool:
+            digest = hashlib.sha256(tile.stem.encode()).hexdigest()
+            return int(digest[:8], 16) % 5 == 0          # a deterministic fifth
+
+        train = [t for t in val if not held_out(t)]
+        val = [t for t in val if held_out(t)]
         print("=" * 70)
         print("PILOT SPLIT -- train and validation share a city.")
         print("This measures whether training converges, NOT whether it generalises.")

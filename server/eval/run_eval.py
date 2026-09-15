@@ -96,6 +96,9 @@ def evaluate(tiles: list[Tile], size: str, stub: bool, weights: str | None = Non
         row = {"tile": tile.stem, "city": tile.city, "split": tile.split,
                "all": overall.as_dict(), "classes": {}}
 
+        if not tile.has_classes:
+            rows.append(row)
+            continue
         for index, name in config.GAMUS_CLASS_NAMES.items():
             if index == config.GAMUS_BACKGROUND_CLASS:
                 continue
@@ -253,10 +256,24 @@ def main() -> int:
                         default=backbone.DEFAULT_SIZE)
     parser.add_argument("--stub", action="store_true", help="skip the model; NOT a result")
     parser.add_argument("--weights", help="fine-tuned decoder checkpoint; output becomes metric")
+    parser.add_argument("--pilot-val", action="store_true",
+                        help="evaluate only the tiles the pilot split held out, so a "
+                             "pilot-trained checkpoint is not scored on its own training data")
+    parser.add_argument("--no-classes", action="store_true",
+                        help="accept tiles without a semantic mask; the per-class breakdown "
+                             "is then unavailable and is reported as such")
     parser.add_argument("--out", default=str(config.EVAL_RESULTS))
     args = parser.parse_args()
 
-    tiles = discover(config.GAMUS_ROOT, args.split, args.limit)
+    if args.pilot_val:
+        from train.datasets import splits as pilot_splits
+
+        trained_on, tiles = pilot_splits(config.GAMUS_ROOT, None, args.limit, allow_pilot=True)
+        print(f"evaluating the {len(tiles)} tiles held out of the pilot "
+              f"({len(trained_on)} were trained on and are excluded)")
+    else:
+        tiles = discover(config.GAMUS_ROOT, args.split, args.limit,
+                         require_classes=not args.no_classes)
     if not tiles:
         print(f"No complete tile triplets in split '{args.split}' under {config.GAMUS_ROOT}.")
         print("Fetch some:  python -m tools.fetch_datasets --sample 20 --split val")
