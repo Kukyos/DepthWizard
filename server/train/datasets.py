@@ -93,8 +93,10 @@ def splits(root: Path, held_out_city: str | None = None, limit: int | None = Non
     validation share a city and the resulting number **overstates generalisation**. It is for
     checking that the loop converges, never for reporting. The caller is warned loudly.
     """
-    train = discover(root, "train", limit)
-    val = discover(root, "val", limit)
+    # Classes are optional for training: they only mask unlabelled background. Requiring
+    # them would starve training of tiles whenever masks lag imagery in the download.
+    train = discover(root, "train", limit, require_classes=False)
+    val = discover(root, "val", limit, require_classes=False)
 
     if held_out_city:
         pool = train + val

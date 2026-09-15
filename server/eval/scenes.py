@@ -25,7 +25,7 @@ class Tile:
     split: str
     rgb_path: Path
     agl_path: Path
-    cls_path: Path
+    cls_path: Path | None
 
     @property
     def city(self) -> str:
@@ -47,15 +47,35 @@ class Tile:
         return self._read(self.agl_path)
 
     def cls(self) -> np.ndarray:
+        """Semantic classes, or an all-ground array when the layer is absent.
+
+        Training only needs classes to mask out unlabelled background, which is under 0.2%
+        of pixels. Evaluation needs them for the per-class breakdown and says so by asking
+        for them explicitly.
+        """
+        if self.cls_path is None:
+            return np.full(self.agl().shape, 1, dtype=int)   # 1 = ground, never background
         return self._read(self.cls_path).astype(int)
 
+    @property
+    def has_classes(self) -> bool:
+        return self.cls_path is not None
 
-def discover(root: Path, split: str, limit: int | None = None) -> list[Tile]:
-    """Every tile in a split with all three layers on disk.
 
-    A tile missing its height or class layer is skipped rather than partially scored: a
-    prediction with no reference contributes nothing, and silently dropping the reference
-    would quietly change what the metric means.
+def discover(root: Path, split: str, limit: int | None = None,
+             require_classes: bool = True) -> list[Tile]:
+    """Every usable tile in a split.
+
+    A tile missing its *height* layer is always skipped: a prediction with no reference
+    contributes nothing, and silently dropping the reference would change what the metric
+    means.
+
+    The class layer is different. Evaluation needs it for the per-class breakdown, so
+    `require_classes` defaults to True. Training only uses it to mask out unlabelled
+    background, so training passes False -- otherwise a download that fetches imagery and
+    heights first (which it does, deliberately) leaves training with almost no tiles while
+    the masks are still arriving. That exact mismatch silently reduced a 244-tile pilot to
+    4 tiles, and the run still looked healthy.
     """
     img_dir = root / "images" / split
     if not img_dir.is_dir():
@@ -66,8 +86,14 @@ def discover(root: Path, split: str, limit: int | None = None) -> list[Tile]:
         stem = image.name[: -len("_RGB.h5")]
         agl = root / "heights" / split / f"{stem}_AGL.h5"
         cls = root / "classes" / split / f"{stem}_CLS.h5"
-        if agl.exists() and cls.exists():
+        if not agl.exists():
+            continue
+        if cls.exists():
             tiles.append(Tile(stem, split, image, agl, cls))
+        elif not require_classes:
+            tiles.append(Tile(stem, split, image, agl, None))
+        else:
+            continue
         if limit and len(tiles) >= limit:
             break
     return tiles
