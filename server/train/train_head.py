@@ -72,11 +72,16 @@ def main() -> int:
     parser.add_argument("--size", default="base", choices=("small", "base", "large"))
     parser.add_argument("--held-out-city", help="leave-one-city-out split (D9)")
     parser.add_argument("--limit", type=int, help="cap tiles per split, for smoke tests")
+    parser.add_argument("--pilot", action="store_true",
+                        help="split the val tiles when train has not downloaded yet. "
+                             "Shares a city between train and val, so the numbers overstate "
+                             "generalisation and are for convergence checking only.")
     parser.add_argument("--eval-every", type=int, default=200)
     parser.add_argument("--out", default=str(config.WEIGHTS_DIR / "height_head.pt"))
     args = parser.parse_args()
 
-    train_tiles, val_tiles = splits(config.GAMUS_ROOT, args.held_out_city, args.limit)
+    train_tiles, val_tiles = splits(config.GAMUS_ROOT, args.held_out_city, args.limit,
+                                   allow_pilot=args.pilot)
     if not train_tiles or not val_tiles:
         print(f"Not enough tiles under {config.GAMUS_ROOT}.")
         print("  train:", len(train_tiles), " val:", len(val_tiles))
@@ -155,6 +160,7 @@ def main() -> int:
                     "step": step, "steps_planned": args.steps,
                     "batch": args.batch, "crop": args.crop, "lr": args.lr,
                     "held_out_city": args.held_out_city,
+                    "pilot_split": bool(args.pilot and not args.held_out_city),
                     "split": info, "history": history,
                     "best_val_l1_m": best,
                     "target": "metres above ground (GAMUS _AGL)",

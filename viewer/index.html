@@ -52,6 +52,20 @@
       #readout dd { margin: 0; font-variant-numeric: tabular-nums; }
 
       #hint { bottom: 12px; right: 12px; color: var(--muted); font-size: 11px; }
+
+      /* Layer switcher. Overlays are pre-rendered server-side; these just swap textures. */
+      #layers {
+        top: 62px; right: 12px;
+        display: flex; flex-direction: column; gap: 4px; padding: 8px;
+      }
+      #layers:empty { display: none; }
+      #layers button {
+        background: transparent; border: 1px solid var(--line); border-radius: 5px;
+        color: var(--muted); font: inherit; font-size: 11px; padding: 4px 10px;
+        cursor: pointer; text-align: left; text-transform: lowercase;
+      }
+      #layers button:hover { color: var(--text); border-color: var(--muted); }
+      #layers button.on { color: var(--accent); border-color: var(--accent); }
       kbd {
         background: #21262d; border: 1px solid var(--line); border-radius: 3px;
         padding: 0 4px; font: inherit; font-size: 10px;
@@ -80,11 +94,14 @@
         <!-- Vertical exaggeration is always shown. Applying it silently would make every
              height on screen a lie; the probe readout is un-exaggerated regardless. -->
         <dt>vert&nbsp;scale</dt><dd id="r-exag">1.0x</dd>
+        <dt>layer</dt><dd id="r-layer">optical</dd>
       </dl>
     </div>
 
+    <div class="panel" id="layers"></div>
+
     <div class="panel" id="hint">
-      <kbd>C</kbd> cycle camera &middot; <kbd>drag</kbd> look &middot; click to probe
+      <kbd>C</kbd> camera &middot; <kbd>L</kbd> layer &middot; <kbd>drag</kbd> look &middot; click to probe
     </div>
 
     <script type="module" src="/src/main.ts"></script>

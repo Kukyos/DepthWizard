@@ -79,13 +79,19 @@ class GamusTiles:
         return np.stack(rgbs), np.stack(agls), np.stack(masks)
 
 
-def splits(root: Path, held_out_city: str | None = None, limit: int | None = None):
+def splits(root: Path, held_out_city: str | None = None, limit: int | None = None,
+           allow_pilot: bool = False):
     """Training and validation tiles.
 
     Default is the official GAMUS split. Passing `held_out_city` gives the leave-one-city-out
     split instead, which is the honest transfer estimate and the one we quote when the two
     disagree (D9) -- evaluation is on imagery from another country, so a split that shares
     city appearance between train and test will flatter us.
+
+    `allow_pilot` exists only for the case where the train split has not finished downloading.
+    It carves a validation set out of the tiles that *are* present, which means train and
+    validation share a city and the resulting number **overstates generalisation**. It is for
+    checking that the loop converges, never for reporting. The caller is warned loudly.
     """
     train = discover(root, "train", limit)
     val = discover(root, "val", limit)
@@ -93,6 +99,16 @@ def splits(root: Path, held_out_city: str | None = None, limit: int | None = Non
     if held_out_city:
         pool = train + val
         train, val = leave_one_city_out(pool, held_out_city)
+        return train, val
+
+    if not train and allow_pilot and val:
+        cut = max(1, int(len(val) * 0.8))
+        train, val = val[:cut], val[cut:]
+        print("=" * 70)
+        print("PILOT SPLIT -- train and validation share a city.")
+        print("This measures whether training converges, NOT whether it generalises.")
+        print("The resulting numbers overstate performance and must not be reported.")
+        print("=" * 70, flush=True)
     return train, val
 
 

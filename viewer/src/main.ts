@@ -50,6 +50,7 @@ interface SceneManifest {
   heightFile?: string | null;
   textureFile?: string | null;
   verticalRange?: [number, number];
+  overlays?: Record<string, string>;
 }
 
 /** Fetch a scene exported by `python -m depthwizard.mesh`.
@@ -298,6 +299,50 @@ async function main(): Promise<void> {
   terrain.material = material;
   if (loaded) {
     el("r-exag").textContent = `${exaggeration.toFixed(1)}x (display only)`;
+  }
+
+  // Layer switching. Overlays are pre-rendered server-side and swapped on the material, so
+  // this is a texture assignment rather than a shader permutation.
+  const layers: { key: string; label: string; file: string | null }[] = [
+    { key: "rgb", label: "optical", file: manifest.textureFile ?? null },
+    ...Object.entries(manifest.overlays ?? {}).map(([key, file]) => ({
+      key,
+      label: key === "error" ? "error vs reference" : key,
+      file,
+    })),
+  ].filter((l) => l.file);
+
+  let activeLayer = 0;
+  const setLayer = (index: number): void => {
+    const layer = layers[index];
+    if (!layer?.file) return;
+    activeLayer = index;
+    const texture = new Texture(`scene/${layer.file}`, scene, false, false);
+    texture.wrapU = Texture.CLAMP_ADDRESSMODE;
+    texture.wrapV = Texture.CLAMP_ADDRESSMODE;
+    material.diffuseTexture = texture;
+    material.emissiveTexture = texture;
+    el("r-layer").textContent = layer.label;
+    buildLayerButtons();
+  };
+
+  function buildLayerButtons(): void {
+    const host = el("layers");
+    host.innerHTML = "";
+    layers.forEach((layer, index) => {
+      const button = document.createElement("button");
+      button.textContent = layer.label;
+      button.className = index === activeLayer ? "on" : "";
+      button.onclick = () => setLayer(index);
+      host.appendChild(button);
+    });
+  }
+  if (layers.length > 1) {
+    buildLayerButtons();
+    window.addEventListener("keydown", (event) => {
+      if (event.key.toLowerCase() !== "l") return;
+      setLayer((activeLayer + 1) % layers.length);
+    });
   }
 
   const cameras = makeCameras(scene);

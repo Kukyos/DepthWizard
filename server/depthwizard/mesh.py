@@ -29,6 +29,7 @@ from pathlib import Path
 import numpy as np
 
 from . import config, io_raster
+from .overlays import build_overlays
 
 DEFAULT_MESH_SIZE = 512
 
@@ -53,6 +54,7 @@ def export(
     out_dir: str | Path,
     rgb_path: str | Path | None = None,
     mesh_size: int = DEFAULT_MESH_SIZE,
+    reference_path: str | Path | None = None,
 ) -> Path:
     from PIL import Image
 
@@ -78,6 +80,15 @@ def export(
         Image.fromarray(rgb).save(out_dir / "texture.png")
         texture_written = True
 
+    # Overlays are computed here, in numpy, where the geospatial context already lives --
+    # gsd, units, nodata. Doing it in a shader would mean reimplementing all of that in GLSL
+    # for no gain, since these are static per scene.
+    reference = None
+    if reference_path:
+        reference = _load_reference(Path(reference_path), clean.shape)
+    overlay_files = build_overlays(clean, out_dir, gsd_m=(info.get("provenance") or {}).get(
+        "gsd_in_m") or config.GAMUS_GSD_M, reference=reference)
+
     provenance = info.get("provenance") or {}
     manifest = {
         "id": dsm_path.stem,
@@ -87,6 +98,7 @@ def export(
         "meshSize": mesh_size,
         "heightFile": "height.bin",
         "textureFile": "texture.png" if texture_written else None,
+        "overlays": overlay_files,
         "verticalRange": [float(clean.min()), float(clean.max())],
         "gsdOutM": provenance.get("gsd_in_m"),
         "objectsResolvable": provenance.get("objects_resolvable", True),
@@ -95,6 +107,22 @@ def export(
     }
     (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf8")
     return out_dir
+
+
+def _load_reference(path: Path, shape: tuple[int, int]) -> np.ndarray | None:
+    """Ground-truth heights for the validation view, on the DSM's grid."""
+    if path.suffix.lower() == ".h5":
+        import h5py
+
+        with h5py.File(path, "r") as f:
+            ref = f[config.GAMUS_H5_KEY][()]
+    else:
+        ref, _ = io_raster.read_dsm(path)
+    ref = np.asarray(ref, dtype=np.float32)
+    if ref.shape != shape:
+        print(f"  reference is {ref.shape}, DSM is {shape}; skipping validation overlay")
+        return None
+    return ref
 
 
 def _load_rgb(path: Path) -> np.ndarray:
@@ -121,13 +149,15 @@ def main() -> int:
     parser.add_argument("-o", "--out", required=True, help="output scene directory")
     parser.add_argument("--rgb", help="the optical image to drape over it")
     parser.add_argument("--mesh-size", type=int, default=DEFAULT_MESH_SIZE)
+    parser.add_argument("--reference", help="ground truth heights, for the validation view")
     args = parser.parse_args()
 
-    out = export(args.dsm, args.out, args.rgb, args.mesh_size)
+    out = export(args.dsm, args.out, args.rgb, args.mesh_size, args.reference)
     manifest = json.loads((out / "manifest.json").read_text(encoding="utf8"))
     print(f"wrote {out}")
     for key in ("units", "sourceSize", "meshSize", "verticalRange"):
         print(f"  {key:14s} {manifest[key]}")
+    print(f"  {'overlays':14s} {sorted(manifest['overlays'])}")
     return 0
 
 
