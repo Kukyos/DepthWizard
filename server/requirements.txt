@@ -39,3 +39,4 @@ trimesh>=4.5              # glTF export for the viewer
 
 # --- tests -----------------------------------------------------------------
 pytest>=8.3
+httpx>=0.27              # FastAPI TestClient
