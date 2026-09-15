@@ -78,13 +78,36 @@ def status() -> None:
             print(f"  WARNING  {split}: layers are out of step {counts} -- rerun to fill gaps")
 
 
-def sample_patterns(api, count: int, split: str) -> list[str]:
-    """Allow-patterns for `count` complete tile triplets from one split.
+_FILE_LIST: list[str] | None = None
 
-    Picks stems that exist in all three layers, so a development subset is never missing
-    a height or a class map for an image it has.
+
+def _repo_files(api, retries: int = 8) -> list[str]:
+    """The repo's file list, fetched once and retried.
+
+    Cached because phases() needs it once per split per group and the listing is ~26k
+    entries; fetching it six times is both slow and six chances for a flaky connection to
+    kill the run before a single byte of data is downloaded. Retried for the same reason --
+    this failed on a hotspot with the listing, not the transfer.
     """
-    files = api.list_repo_files(REPO_ID, repo_type="dataset")
+    global _FILE_LIST
+    if _FILE_LIST is not None:
+        return _FILE_LIST
+    for attempt in range(1, retries + 1):
+        try:
+            _FILE_LIST = api.list_repo_files(REPO_ID, repo_type="dataset")
+            return _FILE_LIST
+        except Exception as exc:                      # noqa: BLE001 -- any transport error
+            if attempt == retries:
+                raise
+            wait = min(30, 3 * attempt)
+            print(f"  listing failed ({type(exc).__name__}); retrying in {wait}s", flush=True)
+            time.sleep(wait)
+    return []
+
+
+def _common_stems(api, split: str) -> list[str]:
+    """Tile stems present in all three layers of a split."""
+    files = _repo_files(api)
 
     def stems(layer: str) -> set[str]:
         prefix, suffix = f"{layer}/{split}/", f"_{LAYERS[layer]}.h5"
@@ -94,14 +117,41 @@ def sample_patterns(api, count: int, split: str) -> list[str]:
             if f.startswith(prefix) and f.endswith(suffix)
         }
 
-    common = sorted(stems("images") & stems("heights") & stems("classes"))
-    if not common:
-        print(f"no complete triplets found in split '{split}'")
-        raise SystemExit(1)
+    return sorted(stems("images") & stems("heights") & stems("classes"))
 
-    chosen = common[:count]
-    print(f"{len(common)} complete triplets in '{split}'; taking {len(chosen)}")
-    return [f"{layer}/{split}/{stem}_{suf}.h5" for stem in chosen for layer, suf in LAYERS.items()]
+
+def phases(api, splits: tuple[str, ...], count: int | None = None) -> list[tuple[str, list[str]]]:
+    """Download work split into ordered phases, most useful first.
+
+    Ordering matters more here than it looks, and passing an ordered pattern list does NOT
+    achieve it: snapshot_download sorts internally, so whatever order you hand it, it walks
+    the repo alphabetically -- classes/, then heights/, then images/. Measured, twice. The
+    first run spent 11 GB and produced 3 usable tiles; the second, with patterns carefully
+    ordered by tile, did exactly the same thing.
+
+    The only way to control order is to call snapshot_download more than once, each call
+    restricted to one group. So: imagery and heights first, because those are what training
+    and evaluation actually need, and the semantic masks last -- they are the smallest part
+    of the value and, through the accident above, already almost entirely on disk.
+    """
+    plan: list[tuple[str, list[str]]] = []
+    for split in splits:
+        common = _common_stems(api, split)
+        chosen = common if count is None else common[:count]
+        print(f"  {split:6s} {len(common):5d} complete triplets, taking {len(chosen)}")
+        # images + heights together: a tile needs both to be trainable, and neither alone.
+        pairs = [f"{layer}/{split}/{stem}_{LAYERS[layer]}.h5"
+                 for stem in chosen for layer in ("images", "heights")]
+        plan.append((f"{split}: imagery + heights", pairs))
+    for split in splits:
+        common = _common_stems(api, split)
+        chosen = common if count is None else common[:count]
+        plan.append((f"{split}: semantic masks",
+                     [f"classes/{split}/{stem}_CLS.h5" for stem in chosen]))
+    if not any(patterns for _, patterns in plan):
+        print("no complete triplets found")
+        raise SystemExit(1)
+    return plan
 
 
 def main() -> int:
@@ -129,48 +179,46 @@ def main() -> int:
     root = config.GAMUS_ROOT
     root.mkdir(parents=True, exist_ok=True)
 
-    if args.sample:
-        split = args.split or "val"     # val is the smallest split
-        patterns = sample_patterns(api, args.sample, split)
-    elif args.split:
-        patterns = [f"{layer}/{args.split}/*" for layer in LAYERS]
-    else:
-        patterns = None                 # everything
+    # Phased, most useful first -- see phases() for why one call cannot do this.
+    splits = (args.split,) if args.split else ("val", "train", "test")
+    plan = phases(api, splits, args.sample)
 
     print(f"repo        {REPO_ID}")
     print(f"destination {root}")
-    print(f"patterns    {patterns if patterns else 'ALL (~80 GB)'}")
-    print("resumable -- interrupting and rerunning picks up where it stopped.\n")
+    print(f"phases      {len(plan)}")
+    print("resumable -- interrupting and rerunning picks up where it stopped.")
 
-    # An 80 GB transfer will meet a dropped connection sooner or later; the first attempt
-    # died on one after about 1 GB. snapshot_download resumes from what is already on disk,
-    # so a retry costs only the reconnect. Backoff is capped rather than unbounded so a
-    # genuinely dead network fails in minutes instead of hanging overnight.
-    for attempt in range(1, args.retries + 1):
-        try:
-            snapshot_download(
-                repo_id=REPO_ID,
-                repo_type="dataset",
-                local_dir=root,
-                allow_patterns=patterns,
-                max_workers=args.workers,
-            )
-            break
-        except KeyboardInterrupt:
-            print("\ninterrupted -- rerun to resume.")
-            return 130
-        except Exception as exc:                      # noqa: BLE001 -- any transport error
-            if attempt == args.retries:
-                print(f"\nfailed after {attempt} attempts: {type(exc).__name__}: {exc}")
-                print("progress is kept; rerun to resume from here.")
-                status()
-                return 1
-            wait = min(60, 5 * 2 ** (attempt - 1))
-            print(f"\nattempt {attempt} failed ({type(exc).__name__}: {exc})")
-            print(f"retrying in {wait}s -- already-downloaded files are kept\n")
-            time.sleep(wait)
+    for label, patterns in plan:
+        if not patterns:
+            continue
+        print("")
+        print(f"=== {label}  ({len(patterns)} files) ===", flush=True)
+        for attempt in range(1, args.retries + 1):
+            try:
+                snapshot_download(
+                    repo_id=REPO_ID,
+                    repo_type="dataset",
+                    local_dir=root,
+                    allow_patterns=patterns,
+                    max_workers=args.workers,
+                )
+                break
+            except KeyboardInterrupt:
+                print("interrupted -- rerun to resume.")
+                return 130
+            except Exception as exc:                  # noqa: BLE001 -- any transport error
+                if attempt == args.retries:
+                    print(f"{label} failed after {attempt} attempts: "
+                          f"{type(exc).__name__}: {exc}")
+                    print("progress is kept; rerun to resume from here.")
+                    status()
+                    return 1
+                wait = min(60, 5 * 2 ** (attempt - 1))
+                print(f"attempt {attempt} failed ({type(exc).__name__}: {exc})")
+                print(f"retrying in {wait}s -- downloaded files are kept", flush=True)
+                time.sleep(wait)
 
-    print("\ndone.")
+    print("done.")
     status()
     return 0
 
