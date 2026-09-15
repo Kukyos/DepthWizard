@@ -26,23 +26,56 @@ question — is the shape right — rather than the Phase 2 question.
 | DC_04_27 | **+0.1662** | — | — | — |
 | **mean** | **+0.037** | | | |
 
-### Reading
+Pooled, that reads as no relationship. Stratified, it is not — see below.
 
-**Zero-shot Depth Anything V2 has essentially no relationship with true height on nadir
-satellite imagery.** Mean correlation +0.037 over three tiles is indistinguishable from
-zero, and the sign is not even stable — it swings from −0.27 to +0.21 between tiles of the
-same city.
+### Stratified by land cover — where the signal actually is
 
-That instability is the important part. A consistent negative correlation would indicate a
-sign-convention bug on our side. A correlation that changes sign tile to tile cannot be a
-convention error; it is the model producing something unrelated to height.
+The pooled figure hides the result. Restricting the correlation to each class, using the
+legend resolved in U-01:
 
-### What it is not
+| Scope | mean r over 3 tiles | What it says |
+|---|---|---|
+| **Everything** | **+0.037** | Looks like the model is useless |
+| **Building** | **+0.189** | Weak but consistently positive on all three tiles |
+| **Tree** | **−0.056** | No relationship at all |
+| **Everything except trees** | **+0.210** | ~5x the pooled figure |
 
-A plausible alternative explanation is that the model reports albedo — bright roofs read as
-near, dark asphalt as far — which on this leaf-off winter imagery would anti-correlate with
-height, since the tall canopy is dark and the bare ground is bright. That was tested and
-**rejected**:
+Per tile, so the consistency is visible rather than asserted:
+
+| Tile | all | building | tree | non-tree | tree share |
+|---|---|---|---|---|---|
+| DC_02_26 | −0.268 | +0.054 | −0.448 | +0.177 | 34.9% |
+| DC_04_23 | +0.213 | +0.281 | +0.139 | +0.147 | 83.9% |
+| DC_04_27 | +0.166 | +0.234 | +0.141 | +0.306 | 27.4% |
+
+**Building correlation is positive on every tile. Tree correlation is not.** The pooled
++0.037 is an average of a weak real signal over built surfaces and a failure over canopy —
+and since canopy is 27–84% of these scenes, the failure dominates the pooled number.
+
+This is visible directly in `out/baseline_comparison.png`: the predicted panel picks out
+building footprints as raised rectangles, in roughly the right places. The reference panel
+is dominated by tree crowns at ~17 m that the prediction leaves flat. The model is finding
+structures and missing vegetation.
+
+### Why vegetation fails here
+
+The imagery is **leaf-off winter** — bare deciduous canopy, brown rather than green, with
+ground texture showing through it. A 17 m tree that looks like a patch of twigs over bare
+earth offers nothing a depth model trained on summer street photography would recognise as
+an elevated surface. Whether this persists on leaf-on or evergreen imagery is untested and
+matters: it decides whether the forest problem is seasonal or fundamental.
+
+### It is not a sign-convention bug
+
+A consistent negative correlation would suggest we had inverted the model's output. Two
+findings rule that out: the pooled sign **swings between tiles of the same city**
+(−0.27 to +0.21), and building correlation is **positive on all three tiles** while tree
+correlation is not. An inverted convention would flip both together.
+
+### It is not albedo
+
+The model might simply be reporting brightness — bright roofs as near, dark asphalt as far —
+which on leaf-off imagery would anti-correlate with height. Tested and rejected:
 
 | Tile | r(pred, AGL) | r(pred, brightness) | r(brightness, AGL) |
 |---|---|---|---|
@@ -50,8 +83,18 @@ height, since the tall canopy is dark and the bare ground is bright. That was te
 | DC_04_23 | +0.2126 | −0.0931 | +0.0461 |
 | DC_04_27 | +0.1662 | −0.0202 | −0.1633 |
 
-Correlation with brightness is as weak as correlation with height. The model is not
-substituting albedo for depth; it is not tracking anything measurable in this domain.
+Correlation with brightness is as weak as correlation with height.
+
+### What this changes about the plan
+
+1. **Hard rule 8 now has evidence behind it.** Scoring forest separately was adopted on
+   principle; this is the first measurement showing that pooling canopy with built surfaces
+   destroys an otherwise readable signal.
+2. **Building-only metrics are the honest headline** for built-up scenes, and the brief's
+   disaster-management framing is about structures.
+3. **Fine-tuning has something to build on.** A backbone at r ≈ 0 everywhere would be a
+   weak starting point; one already at +0.19 on buildings is being asked to sharpen an
+   existing signal rather than create one.
 
 ### Why this number is kept
 
@@ -74,7 +117,7 @@ Listed so absence is not mistaken for a pending good result.
 | Absolute RMSE / MAE in metres | Undefined until Phase 2 calibration exists (D-05) |
 | Per-landscape stratification | Harness not built; and no hilly/forested data exists at all (D-02) |
 | Per-GSD-band accuracy | GAMUS is single-GSD; the degradation sweep is Phase 3 |
-| Building-only RMSE | Possible now that the class legend is resolved; harness not built |
+| Building-only RMSE in metres | Needs calibration (D-05). Building *correlation* is measured above |
 | Leave-one-city-out split | Harness not built. Only DC tiles have been touched so far |
 | Steady-state inference time | 61 s for the first tile **including model load** — not a throughput figure |
 | Viewer frame rate | Not instrumented |
