@@ -96,6 +96,75 @@ substituting one for the other.
    be flat is the more telling number, and suggests the model is putting relief where there
    is none.
 
+---
+
+# Fine-tuning, and what transfer actually costs
+
+Added 2026-09-15, after retraining the decoder on GAMUS heights.
+
+## It works
+
+Freezing DINOv2 and retraining the DPT neck and head — 10.9M of 97.5M parameters — moves
+correlation with LiDAR from **+0.04 to around +0.8** on a within-city split, and the output
+becomes real metres above ground rather than a unitless ordering. Validation L1 lands near
+**2.2 m**.
+
+The change is visible without any statistics, in `out/finetune_comparison.png`: the zero-shot
+panel picks out buildings and leaves the 17 m canopy flat, while the fine-tuned panel
+reproduces the tree crowns and the tree line that dominate the reference.
+
+## And then transfer costs most of it
+
+Training on Philadelphia and evaluating on Washington DC — never mixing them — gives a very
+different picture:
+
+| Split | val L1 | r |
+|---|---|---|
+| Within city (DC → held-out DC tiles) | **2.17 m** | **+0.81** |
+| Across cities (PHL → DC) | **5.30 m** | **+0.59** |
+
+Worse, the cross-city run *degrades with more training*: L1 5.30 m at step 250 becomes
+6.39 m at step 500 while the training loss keeps falling to 0.87. It is learning
+Philadelphia.
+
+## Why: the target distribution differs between the two cities
+
+Measured over 40 random tiles each:
+
+| City | mean AGL | median AGL | p90 | fraction above 2 m |
+|---|---|---|---|---|
+| Washington DC | 6.21 m | 4.60 m | 15.76 m | 50.5% |
+| Philadelphia | 2.07 m | 0.59 m | 6.54 m | 29.3% |
+
+**DC is three times taller on average.** DC's val tiles are leafy suburb with mature canopy;
+Philadelphia's are low, dense rowhousing. A model trained on Philadelphia learns that a
+typical surface sits about 2 m above ground, and DC needs about 6 m.
+
+So this is not ordinary domain shift in *appearance*. It is shift in the **target variable**,
+and an L1 loss will happily learn the training city's height prior as if it were a property
+of the world.
+
+## What this means for the submission
+
+1. **It vindicates quoting the leave-one-city-out number** (D9). Had we reported the
+   within-city figure, we would have claimed r ≈ 0.81 for a system that delivers r ≈ 0.59 on
+   a city it has not seen — and evaluation is on Indian imagery, which is further away than
+   Philadelphia is from Washington.
+
+2. **Indian urban form will have its own height distribution**, and it will not be either of
+   these. A model carrying a US height prior will be biased on it in a direction we cannot
+   predict from US data alone. This is an argument for a scale-invariant or
+   distribution-robust loss term, not only L1.
+
+3. **Train on the union, not on one city.** The current run uses one city only because that is
+   what had downloaded. Mixing cities should reduce the prior's specificity; whether it does
+   is a measurement to make, not an assumption.
+
+4. **Early stopping is doing real work here.** The saved checkpoint is the best-validation
+   one, not the last, and on the cross-city run those differ substantially.
+
+---
+
 ## The caveat that outweighs all of the above
 
 **Three tiles, one city, one season.** They were chosen only because they were the first to
