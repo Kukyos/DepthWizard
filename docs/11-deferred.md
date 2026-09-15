@@ -73,14 +73,14 @@ with a working height probe and error overlay.
 | `ingest.py` GSD normalise + tiling | 1 | Not needed yet; inputs so far are single 1024² tiles |
 | Leave-one-city-out evaluation | 1 | **Blocked on data**: only DC tiles have downloaded so far (D-06) |
 | `srtm.py` with datum handling | 2 | See U-07 — the datum trap is tens of metres |
-| `shadow.py` | 2 | Our primary novelty. Blocked on D-03 for validation |
+| Shadow **detection** validation | 2 | The caster is built and tested; detecting real shadows in imagery is the weak link (N-02) |
 | `gcp.py` | 2 | |
 | `calibrate.py` + confidence band | 2 | Band must be coverage-checked, not just emitted |
-| nDSM head + training | 3 | Needs the GAMUS download to finish |
+| Training on the full 5004-tile split | 3 | Blocked on the download; current runs use val tiles (D-06) |
 | GSD degradation sweep → the refusal floor | 3 | The floor must be measured, not chosen |
-| Overlays, validation view, upload UI | 4 | Viewer currently loads a pre-exported scene only |
-| `api.py` | 4 | No server yet; export is a CLI step |
+| Terrain LOD for large rasters | 4 | One mesh at 512² is fine; ISRO-sized input is not tested |
 | Electron installers | 5 | |
+| Malformed-input hardening pass | 5 | 16-bit, CMYK, absurd aspect ratios |
 
 ### D-06 · Only one city has downloaded
 **Severity: blocks the honest transfer number.** The download fetches tiles alphabetically
@@ -93,11 +93,18 @@ therefore overstates generalisation.
 the training script prints a warning banner. They are for checking that training converges.
 *Fix:* wait for PHL tiles, then `--held-out-city PHL`.
 
-### D-05 · No absolute heights yet
-Phase 2 calibration does not exist, so **every output is relative**, including for a
-georeferenced input whose CRS is preserved. This is correct rather than unfinished — emitting
-metres before anything establishes a scale is the fabrication hard rules 1 and 2 exist to
-prevent — but it does mean G1's absolute path is not yet demonstrable.
+### D-05 · Heights are above ground, not above sea level
+The trained decoder outputs **metres above ground** (nDSM) — real metres, from the network
+directly, with no calibration step needed. What is still missing is the terrain term: an
+absolute DSM is `DTM + nDSM`, and the DTM comes from SRTM in Phase 2.
+
+So `metres_agl` is reachable today and `metres_absolute` is not. The two are distinct states
+throughout the code and the UI, because they differ by the terrain elevation — tens or
+hundreds of metres — and conflating them would be wrong in a way nothing on screen would
+reveal. The zero-shot path remains relative.
+
+*Blocks:* the absolute half of G1.
+*Fix:* `srtm.py`, with the EGM96/WGS84 datum handled explicitly (U-07).
 
 ---
 
