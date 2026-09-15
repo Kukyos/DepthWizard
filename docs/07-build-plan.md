@@ -6,8 +6,15 @@ showable state.
 Principle: **the eval harness and the honest baseline come before the model work.**
 Everything else is replaceable; the ability to measure is the product.
 
-> This file is the **plan**, not the tracker. For what is actually outstanding read
-> `11-deferred.md`; for measured numbers, `12-eval-results.md`.
+> This file is the **plan**, not the tracker, and the checkboxes below are deliberately left
+> as originally written. For what is actually outstanding read `11-deferred.md`; for measured
+> numbers `12-eval-results.md`, and for what they mean `13-baseline-analysis.md`.
+>
+> **Progress, 2026-09-15.** Phase 0 and Phase 1 are done. Phase 3 (fine-tuning) came earlier
+> than planned, because the Phase 1 baseline showed the domain gap was the dominant error and
+> closing it was worth more than calibration. Phase 4's viewer is largely built. Phase 2
+> (calibration to absolute elevation) is the main remaining gap, and the shadow ray-caster
+> that Phase 2 depends on is already written and tested.
 
 ---
 
