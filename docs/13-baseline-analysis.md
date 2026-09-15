@@ -185,9 +185,35 @@ DC, where the mean is 6.21 m. It is not confused about *where* things are tall �
 is +0.56 — it is confidently short about *how* tall.
 
 This matters because bias and scatter fail differently. Scatter is a model limit and needs a
-better model. **A constant offset is a calibration error, and calibration is exactly what
-Phase 2 is for.** An SRTM, shadow or GCP anchor estimates a scene-level offset and would
-remove most of the 6.18 m without touching the network.
+better model. A constant offset looks like a calibration error, and the obvious move is to estimate it and
+subtract it. **That was measured, and it does not work.**
+
+| | RMSE on held-out DC |
+|---|---|
+| As-is | 8.94 m |
+| Best possible single offset | 6.56 m (27% better) |
+| Best possible offset *and* scale | 6.32 m (29% better) |
+
+27% looks worth having until it is broken down by land cover:
+
+| class | RMSE as-is | RMSE with that offset |
+|---|---|---|
+| ground | **1.13 m** | 6.75 m |
+| building | 6.04 m | 6.16 m |
+| tree | 13.22 m | 8.27 m |
+
+**The offset makes ground six times worse to make canopy better,** and wins on pooled RMSE
+only because canopy is about half the pixels. It is not a correction, it is fitting the mean —
+and the offset that achieves it is `mean(reference − prediction)`, which needs the answer, so
+it is not available at inference anyway.
+
+Run for real, the ground anchor applies **+0.00 m** on these scenes, which is correct: the
+decoder already puts ground at the right height. The error is not in the floor.
+
+So the residual is a **compressed height range**, not a shifted one. Three classes have three
+different offsets and no global constant repairs them together. Getting past it needs
+per-object anchoring — a shadow measures one structure rather than a whole scene, which is
+why N-02 matters — or training that does not learn one city's height prior to begin with.
 
 Ground at 1.51 m RMSE and +0.55 m bias is genuinely good, and worth noting: where the two
 cities agree about what the surface looks like, the model is accurate.
