@@ -3,13 +3,15 @@
     python -m depthwizard.dsm scene.tif -o out/scene_DSM.tif
     python -m depthwizard.dsm tile.h5 -o out/t.tif --reference tile_AGL.h5
 
-Phase 1 scope. There is no scale calibration yet, so **every output is relative** -- the
-absolute path needs SRTM, shadow or GCP anchoring, which is Phase 2. A georeferenced input
-therefore keeps its CRS and transform (so the raster lands correctly on a map) while still
-declaring relative units, and the viewer shows no metre value for it.
+Three output states, and they are kept distinct because conflating them is the easiest way
+to publish a number that is wrong by a constant nobody notices:
 
-That is deliberate rather than unfinished. Emitting metres before anything establishes a
-scale would be exactly the fabrication hard rules 1 and 2 exist to prevent.
+  relative_unitless   zero-shot backbone, no scale at all. No metre value anywhere.
+  metres_agl          fine-tuned decoder: real metres, but *above the ground beneath*.
+  metres_absolute     elevation above sea level. Needs the SRTM terrain term, so Phase 2.
+
+A georeferenced input keeps its CRS and transform whichever state applies, so the raster
+always lands correctly on a map. What changes is what may be claimed about its values.
 """
 
 from __future__ import annotations
@@ -23,7 +25,7 @@ from typing import Any
 
 import numpy as np
 
-from . import backbone, config, io_raster
+from . import backbone, config, head, io_raster
 from .io_raster import SceneMeta
 
 
@@ -65,20 +67,36 @@ def load_any(path: str | Path) -> tuple[np.ndarray, SceneMeta]:
 
 
 def estimate(path: str | Path, size: str = backbone.DEFAULT_SIZE,
-             stub: bool = False) -> Product:
-    """Run the pipeline on one image."""
+             stub: bool = False, weights: str | Path | None = None) -> Product:
+    """Run the pipeline on one image.
+
+    With `weights`, the fine-tuned decoder regresses metres above ground directly and the
+    output is metric. Without, it is the zero-shot backbone and the output is relative --
+    and is labelled relative, whatever the input's georeferencing says (hard rule 2).
+    """
     rgb, meta = load_any(path)
     if rgb.shape[2] == 1:
         rgb = np.repeat(rgb, 3, axis=2)
 
     started = perf_counter()
-    result = backbone.estimate_stub(rgb) if stub else backbone.estimate_relative_depth(rgb, size)
+    if weights:
+        heights, provenance = _run_trained(rgb, size, weights)
+        # Metres, but above the ground beneath -- not above sea level. The terrain
+        # term needs SRTM (D6, Phase 2), so calling this absolute would overclaim.
+        units = config.Units.METRES_AGL
+        calibration = "none needed for AGL -- the head regresses metres directly; absolute elevation still requires the SRTM terrain term"
+    else:
+        result = (backbone.estimate_stub(rgb) if stub
+                  else backbone.estimate_relative_depth(rgb, size))
+        heights, provenance = result.relative, result.provenance()
+        units = config.Units.RELATIVE_UNITLESS
+        calibration = "none -- Phase 2 not built; output is relative"
     elapsed = perf_counter() - started
 
     provenance = {
-        **result.provenance(),
+        **provenance,
         "pipeline_phase": 1,
-        "calibration": "none -- Phase 2 not built; output is relative",
+        "calibration": calibration,
         "calibration_anchors": [],
         "confidence_m": None,
         "inference_seconds": round(elapsed, 3),
@@ -86,10 +104,34 @@ def estimate(path: str | Path, size: str = backbone.DEFAULT_SIZE,
         "unsourced_values": [p.key for p in config.placeholders()],
     }
 
-    # Phase 1 has no anchor, so nothing can legitimately be called metres yet -- including
-    # for a georeferenced input, whose CRS is still preserved for correct placement.
-    meta_out = SceneMeta(**{**meta.__dict__, "units": config.Units.RELATIVE_UNITLESS})
-    return Product(heights=result.relative, meta=meta_out, provenance=provenance)
+    meta_out = SceneMeta(**{**meta.__dict__, "units": units})
+    return Product(heights=heights, meta=meta_out, provenance=provenance)
+
+
+def _run_trained(rgb: np.ndarray, size: str, weights: str | Path):
+    """Metric nDSM from the fine-tuned decoder, resampled onto the source grid."""
+    import torch
+
+    model, processor, device, counts = head.load_trained(size, weights)
+    mean = torch.tensor(processor.image_mean).view(1, 3, 1, 1)
+    std = torch.tensor(processor.image_std).view(1, 3, 1, 1)
+    x = head.normalise(rgb[None], mean, std).to(device)
+    with torch.no_grad():
+        pred = model(pixel_values=x).predicted_depth
+    pred = torch.nn.functional.interpolate(
+        pred.unsqueeze(1), size=rgb.shape[:2], mode="bilinear", align_corners=False)
+    heights = pred.squeeze().float().cpu().numpy()
+
+    meta = counts.get("meta", {})
+    return heights, {
+        "backbone": backbone.CHECKPOINTS[size],
+        "backbone_device": device,
+        "decoder": "fine-tuned (neck + head)",
+        "decoder_weights": str(weights),
+        "decoder_trained_steps": meta.get("step"),
+        "decoder_val_l1_m": meta.get("best_val_l1_m"),
+        "output_kind": "ndsm_metres_above_ground",
+    }
 
 
 def _git_commit() -> str:
@@ -148,15 +190,21 @@ def main() -> int:
     parser.add_argument("--reference", help="ground-truth heights to score against (.h5 or raster)")
     parser.add_argument("--stub", action="store_true",
                         help="wire-test without the model; output is NOT a prediction")
+    parser.add_argument("--weights", help="fine-tuned decoder; output becomes metres AGL")
     args = parser.parse_args()
 
-    product = estimate(args.image, size=args.size, stub=args.stub)
+    product = estimate(args.image, size=args.size, stub=args.stub, weights=args.weights)
 
     if args.reference:
         ref_path = Path(args.reference)
         ref = (_read_gamus(ref_path) if ref_path.suffix.lower() == ".h5"
                else io_raster.read_dsm(ref_path)[0])
         scores = score_against_reference(product.heights, ref)
+        if args.weights:
+            diff = product.heights.astype(float) - ref.astype(float)
+            scores["rmse_m"] = float(np.sqrt((diff ** 2).mean()))
+            scores["mae_m"] = float(np.abs(diff).mean())
+            scores["bias_m"] = float(diff.mean())
         product.provenance["scored_against"] = str(ref_path)
         product.provenance["scale_free_scores"] = scores
 

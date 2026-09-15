@@ -34,7 +34,10 @@ import "@babylonjs/core/Culling/ray";
  * A string union rather than a boolean, so "relative" is a first-class state and an unset
  * value cannot silently read as metres. Hard rule 2.
  */
-type Units = "metres_absolute" | "relative_unitless";
+type Units = "metres_absolute" | "metres_agl" | "relative_unitless";
+
+/** Units carrying real metres. "relative" is deliberately absent. */
+const METRIC: readonly Units[] = ["metres_absolute", "metres_agl"];
 
 /** The subset of the server's SceneManifest the viewer needs. See docs/09-architecture.md. */
 interface SceneManifest {
@@ -92,14 +95,18 @@ const el = <T extends HTMLElement>(id: string): T => {
 function applyUnits(manifest: SceneManifest): void {
   const badge = el("units");
   const label = el("units-label");
-  const absolute = manifest.units === "metres_absolute";
+  const metric = METRIC.includes(manifest.units);
 
-  badge.classList.toggle("absolute", absolute);
-  if (!absolute) {
+  badge.classList.toggle("absolute", metric);
+  if (!metric) {
     label.textContent = "relative — no metric scale";
     return;
   }
-  const parts = ["metres (absolute)"];
+  // Above-ground and above-sea-level are both metres and are not the same claim. Saying
+  // "absolute" for an nDSM would overstate by the terrain elevation, invisibly.
+  const parts = [manifest.units === "metres_agl"
+    ? "metres above ground"
+    : "metres above sea level"];
   if (manifest.gsdOutM !== null) parts.push(`${manifest.gsdOutM.toFixed(2)} m/px`);
   if (!manifest.objectsResolvable) parts.push("terrain only — objects not resolvable");
   label.textContent = parts.join(" · ");
@@ -112,11 +119,12 @@ function applyUnits(manifest: SceneManifest): void {
  * that wants to append "m" has to go through here and cannot, which is the point.
  */
 function formatHeight(value: number, manifest: SceneManifest): string {
-  if (manifest.units !== "metres_absolute") {
+  if (!METRIC.includes(manifest.units)) {
     return `${value.toFixed(3)} (relative)`;
   }
   const band = manifest.confidenceM === null ? "" : ` ± ${manifest.confidenceM.toFixed(1)}`;
-  return `${value.toFixed(1)}${band} m`;
+  const datum = manifest.units === "metres_agl" ? " AGL" : " ASL";
+  return `${value.toFixed(1)}${band} m${datum}`;
 }
 
 // ------------------------------------------------------------------ placeholder mesh

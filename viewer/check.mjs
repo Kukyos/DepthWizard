@@ -74,7 +74,7 @@ check("height formatting is funnelled through one function", () => {
 check("formatHeight refuses metres for a relative scene", () => {
   const body = all.match(/function formatHeight[\s\S]*?\n\}/);
   assert.ok(body, "formatHeight not found");
-  const guardIndex = body[0].indexOf('!== "metres_absolute"');
+  const guardIndex = body[0].indexOf("METRIC.includes");
   const metreIndex = body[0].indexOf("} m");
   assert.ok(guardIndex > -1, "no guard on units in formatHeight");
   assert.ok(metreIndex > -1, "formatHeight never emits a metre label at all");
@@ -86,7 +86,9 @@ check("formatHeight refuses metres for a relative scene", () => {
 
 check("units is a string union, never a boolean", () => {
   // A boolean makes "unset" read as false, and false would read as relative only by luck.
-  assert.match(all, /type Units =\s*"metres_absolute"\s*\|\s*"relative_unitless"/);
+  assert.match(all, /type Units =[^;]*"relative_unitless"/);
+  assert.match(all, /type Units =[^;]*"metres_agl"/,
+    "metres_agl must be a distinct state: above-ground is not above-sea-level");
 });
 
 check("no network calls — the viewer is offline by design", () => {

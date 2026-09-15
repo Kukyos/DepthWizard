@@ -48,7 +48,7 @@ class SceneMeta:
 
     @property
     def georeferenced(self) -> bool:
-        return self.units == config.Units.METRES_ABSOLUTE
+        return self.units in config.Units.METRIC
 
     @property
     def objects_resolvable(self) -> bool:

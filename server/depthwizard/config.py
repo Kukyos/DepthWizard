@@ -145,8 +145,12 @@ class Units:
     an unset value cannot silently read as metres (hard rule 2).
     """
 
-    METRES_ABSOLUTE = "metres_absolute"
-    RELATIVE_UNITLESS = "relative_unitless"
+    METRES_ABSOLUTE = "metres_absolute"      # elevation above sea level: DTM + nDSM
+    METRES_AGL = "metres_agl"                # height above the ground beneath: nDSM only
+    RELATIVE_UNITLESS = "relative_unitless"  # ordering with no scale at all
+
+    #: Units that carry real metres. Relative is deliberately not in here.
+    METRIC = ("metres_absolute", "metres_agl")
 
 
 DSM_DTYPE = "float32"
