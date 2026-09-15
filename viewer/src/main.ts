@@ -78,6 +78,12 @@ async function loadScene(
   }
 }
 
+/** Same-origin in the packaged app; the dev server runs the viewer on its own port. */
+const API = `http://localhost:8000`;
+
+/** A scene may be served from disk (default) or by the API after an upload. */
+const sceneBase = new URLSearchParams(location.search).get("scene") ?? "scene";
+
 const el = <T extends HTMLElement>(id: string): T => {
   const found = document.getElementById(id);
   if (!found) throw new Error(`missing element #${id}`);
@@ -245,7 +251,7 @@ async function main(): Promise<void> {
 
   // Metres are earned from a CRS, never assumed — so the fallback declares itself
   // relative, which is also the correct state for the non-georeferenced path.
-  const loaded = await loadScene();
+  const loaded = await loadScene(sceneBase);
   const manifest: SceneManifest = loaded?.manifest ?? {
     id: "synthetic placeholder",
     units: "relative_unitless",
@@ -283,7 +289,7 @@ async function main(): Promise<void> {
   if (loaded && manifest.textureFile) {
     // The optical image draped over the geometry. Projection accuracy is the first thing
     // the evaluation criteria name, so the UVs map 1:1 to the source grid with no offset.
-    const texture = new Texture(`scene/${manifest.textureFile}`, scene, false, false);
+    const texture = new Texture(`${sceneBase}/${manifest.textureFile}`, scene, false, false);
     texture.wrapU = Texture.CLAMP_ADDRESSMODE;
     texture.wrapV = Texture.CLAMP_ADDRESSMODE;
     material.diffuseTexture = texture;
@@ -317,7 +323,7 @@ async function main(): Promise<void> {
     const layer = layers[index];
     if (!layer?.file) return;
     activeLayer = index;
-    const texture = new Texture(`scene/${layer.file}`, scene, false, false);
+    const texture = new Texture(`${sceneBase}/${layer.file}`, scene, false, false);
     texture.wrapU = Texture.CLAMP_ADDRESSMODE;
     texture.wrapV = Texture.CLAMP_ADDRESSMODE;
     material.diffuseTexture = texture;
@@ -386,8 +392,59 @@ async function main(): Promise<void> {
     el("r-height").textContent = formatHeight(stored, manifest);
   });
 
+  // ---- upload -------------------------------------------------------------------
+  // The brief's second deliverable starts with "allows users to upload imagery". The
+  // server runs the same pipeline the CLI and the harness run; this just posts to it and
+  // reloads with the returned scene.
+  const status = el("upload-status");
+  const input = el<HTMLInputElement>("file");
+
+  async function upload(files: FileList | null): Promise<void> {
+    const file = files?.[0];
+    if (!file) return;
+    status.textContent = `processing ${file.name}…`;
+    const body = new FormData();
+    body.append("image", file);
+    try {
+      const response = await fetch(`${API}/api/process`, { method: "POST", body });
+      if (!response.ok) {
+        // The server returns a readable reason for bad input rather than a traceback.
+        const detail = await response.json().catch(() => ({}));
+        status.textContent = `rejected: ${detail.detail ?? response.statusText}`;
+        return;
+      }
+      const manifest = await response.json();
+      status.textContent = "done — reloading";
+      // Reload against the API-served scene rather than rebuilding in place: scene setup
+      // is a page concern and a fresh load is simpler than tearing down Babylon state.
+      location.search = `?scene=${encodeURIComponent(`${API}/api/scene/${manifest.sceneId}`)}`;
+    } catch (error) {
+      status.textContent = `server unreachable — is it running on ${API}?`;
+      console.error(error);
+    }
+  }
+
+  input.onchange = () => void upload(input.files);
+  const drop = el("upload");
+  drop.addEventListener("dragover", (event) => {
+    event.preventDefault();
+    drop.classList.add("over");
+  });
+  drop.addEventListener("dragleave", () => drop.classList.remove("over"));
+  drop.addEventListener("drop", (event) => {
+    event.preventDefault();
+    drop.classList.remove("over");
+    void upload(event.dataTransfer?.files ?? null);
+  });
+
   engine.runRenderLoop(() => scene.render());
   window.addEventListener("resize", () => engine.resize());
 }
 
-void main();
+// `void main()` would swallow an async failure: the panels still render, the canvas stays
+// black, and nothing says why. Surfacing it costs three lines and saves a confused hour.
+main().catch((error) => {
+  console.error("viewer failed to start", error);
+  const status = document.getElementById("upload-status");
+  if (status) status.textContent = `failed to start: ${error?.message ?? error}`;
+});

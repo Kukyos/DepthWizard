@@ -53,6 +53,17 @@
 
       #hint { bottom: 12px; right: 12px; color: var(--muted); font-size: 11px; }
 
+      #upload {
+        top: 96px; left: 12px; width: 186px;
+        display: flex; flex-direction: column; gap: 2px;
+        border-style: dashed; cursor: pointer;
+      }
+      #upload b { font-size: 12px; }
+      #upload span { color: var(--muted); font-size: 11px; }
+      #upload.over { border-color: var(--accent); border-style: solid; }
+      #upload-status:empty { display: none; }
+      #upload-status { color: var(--accent); }
+
       /* Layer switcher. Overlays are pre-rendered server-side; these just swap textures. */
       #layers {
         top: 62px; right: 12px;
@@ -99,6 +110,13 @@
     </div>
 
     <div class="panel" id="layers"></div>
+
+    <label class="panel" id="upload">
+      <b>drop an image</b>
+      <span>PNG, JPG, GeoTIFF</span>
+      <span id="upload-status"></span>
+      <input type="file" id="file" accept=".png,.jpg,.jpeg,.tif,.tiff,.h5" hidden />
+    </label>
 
     <div class="panel" id="hint">
       <kbd>C</kbd> camera &middot; <kbd>L</kbd> layer &middot; <kbd>drag</kbd> look &middot; click to probe
