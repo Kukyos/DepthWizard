@@ -29,7 +29,7 @@ from pathlib import Path
 import numpy as np
 
 from . import config, io_raster
-from .overlays import build_overlays
+from .overlays import build_overlays, error_statistics
 
 DEFAULT_MESH_SIZE = 512
 
@@ -90,15 +90,20 @@ def export(
         "gsd_in_m") or config.GAMUS_GSD_M, reference=reference)
 
     provenance = info.get("provenance") or {}
+    units = info.get("units") or config.Units.RELATIVE_UNITLESS
     manifest = {
         "id": dsm_path.stem,
-        "units": info.get("units") or config.Units.RELATIVE_UNITLESS,
+        "units": units,
         "crs": info.get("crs"),
         "sourceSize": [int(heights.shape[1]), int(heights.shape[0])],
         "meshSize": mesh_size,
         "heightFile": "height.bin",
         "textureFile": "texture.png" if texture_written else None,
         "overlays": overlay_files,
+        # Numbers to sit beside the error overlay. The brief puts validation inside the
+        # app, as something a user does, so the figures travel with the scene.
+        "validation": (error_statistics(clean, reference, metric=units in config.Units.METRIC)
+                       if reference is not None else None),
         "verticalRange": [float(clean.min()), float(clean.max())],
         "gsdOutM": provenance.get("gsd_in_m"),
         "objectsResolvable": provenance.get("objects_resolvable", True),

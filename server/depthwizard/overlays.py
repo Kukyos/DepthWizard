@@ -114,8 +114,18 @@ def build_overlays(
     return files
 
 
-def error_statistics(heights_m: np.ndarray, reference: np.ndarray) -> dict[str, float]:
-    """Numbers to sit beside the error overlay in the validation panel."""
+def error_statistics(heights_m: np.ndarray, reference: np.ndarray,
+                     metric: bool) -> dict[str, float] | None:
+    """Numbers to sit beside the error overlay in the validation panel.
+
+    Returns None for a relative height field. Subtracting metres from a unitless 0..1 field
+    produces a number with an "m" after it that means nothing -- which is exactly the
+    fabrication hard rule 2 exists to stop, and it is easy to do by accident because the
+    arithmetic works fine. The error *image* is still useful in that case, since it shows
+    where the shape disagrees; the statistics are not.
+    """
+    if not metric:
+        return None
     error = (heights_m.astype(np.float64) - reference.astype(np.float64)).ravel()
     error = error[np.isfinite(error)]
     if error.size == 0:
