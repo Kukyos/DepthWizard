@@ -76,6 +76,9 @@ def main() -> int:
                         help="split the val tiles when train has not downloaded yet. "
                              "Shares a city between train and val, so the numbers overstate "
                              "generalisation and are for convergence checking only.")
+    parser.add_argument("--height-weight", type=float, default=0.0, metavar="SCALE",
+                        help="weight pixels by 1 + height/SCALE, to counter the low-pixel "
+                             "majority that drives range compression. 0 disables.")
     parser.add_argument("--eval-every", type=int, default=200)
     parser.add_argument("--out", default=str(config.WEIGHTS_DIR / "height_head.pt"))
     args = parser.parse_args()
@@ -124,7 +127,8 @@ def main() -> int:
                 pred = torch.nn.functional.interpolate(
                     pred.unsqueeze(1), size=target.shape[-2:], mode="bilinear",
                     align_corners=False).squeeze(1)
-            loss = head.masked_loss(pred.float(), target, m)
+            loss = head.masked_loss(pred.float(), target, m,
+                                    height_weight_scale=args.height_weight)
 
         if loss is None:
             continue
@@ -160,6 +164,7 @@ def main() -> int:
                     "step": step, "steps_planned": args.steps,
                     "batch": args.batch, "crop": args.crop, "lr": args.lr,
                     "held_out_city": args.held_out_city,
+                    "height_weight": args.height_weight,
                     "pilot_split": bool(args.pilot and not args.held_out_city),
                     "split": info, "history": history,
                     "best_val_l1_m": best,

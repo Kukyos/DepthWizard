@@ -72,13 +72,24 @@ def normalise(rgb, mean, std):
     return (x - mean) / std
 
 
-def masked_loss(pred, target, mask, gradient_weight: float = 0.5):
+def masked_loss(pred, target, mask, gradient_weight: float = 0.5,
+                height_weight_scale: float = 0.0):
     """L1 on valid pixels, plus a gradient term so edges stay sharp.
 
     Plain L1 alone produces the smeared mounds the zero-shot baseline already shows: it is
     minimised by blurring a roof edge across several metres, which costs little error but
     looks wrong in a flythrough and misplaces every building boundary. The gradient term
     penalises getting the *change* in height wrong, which is what a roof edge is.
+
+    `height_weight_scale` addresses a different failure, found by measurement: the trained
+    decoder under-predicts tall structures badly (about -14 m on canopy) while getting ground
+    right to about a metre. Height is heavily right-skewed -- most pixels are near zero and a
+    minority are tall -- so unweighted L1 is dominated by the low majority, and the cheapest
+    way to reduce it is to pull everything toward the low mode. That is exactly the range
+    compression observed.
+
+    Setting a scale weights each pixel by `1 + target/scale`, so a 20 m tree counts several
+    times a patch of road. Zero disables it, which is the default until it is shown to help.
     """
     import torch
 
@@ -86,7 +97,12 @@ def masked_loss(pred, target, mask, gradient_weight: float = 0.5):
     if valid.sum() < 16:
         return None
 
-    l1 = (pred - target).abs()[valid].mean()
+    error = (pred - target).abs()
+    if height_weight_scale > 0:
+        weights = 1.0 + target / height_weight_scale
+        l1 = (error * weights)[valid].sum() / weights[valid].sum()
+    else:
+        l1 = error[valid].mean()
 
     # Finite differences, comparing only where both neighbours are valid.
     def grads(t):
