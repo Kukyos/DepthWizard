@@ -5,21 +5,12 @@ tracker.** `07-build-plan.md` is the plan and is allowed to go stale; this file 
 
 Updated in the same pass as the shortcut that created the entry. Never in a cleanup at the end.
 
-Status as of **2026-09-11**. The repository is scaffolded; no pipeline code exists yet.
+Status as of **2026-09-15**. The Phase 1 spine runs end to end on real imagery:
+image -> Depth Anything V2 -> GeoTIFF + provenance -> textured 3D scene.
 
 ---
 
 ## Blockers — work cannot proceed correctly until these are resolved
-
-### D-01 · CUDA is not available
-**Severity: blocking all performance work.** torch 2.13.0 is installed as the **CPU build**.
-`torch.cuda.is_available()` returns `False` on a machine with an RTX 4060 Laptop (8188 MiB,
-driver 616.56).
-
-*Blocks:* every timing number in the project; any practical inference; the local baseline run.
-*Fix:* `pip install torch --index-url https://download.pytorch.org/whl/cu130` — 2.13.0+cu130
-exists and matches the installed version, and driver 616.56 supports CUDA 13.
-*Effort:* minutes, plus a large download. Wired into `run.ps1 -Setup`.
 
 ### D-02 · No terrain-diverse training or evaluation data
 **Severity: blocks half of a 50%-weighted gate.** The GAMUS mirror is DC, NYC and Philadelphia —
@@ -47,37 +38,44 @@ retains georeferencing. Plan for two evaluation datasets, not one.
 validation set.
 *Effort:* unknown — depends entirely on whether footprints are recoverable.
 
-### D-04 · GAMUS class legend unknown
-**Severity: blocks stratification and one calibration route.** Six class names are known from the
-paper; their integer order is not (U-01).
-
-*Blocks:* semantic priors as a calibration route (a named brief milestone); landscape labelling
-from the class layer, which is the preferred route for stratifying G3.
-*Fix:* empirical — cross-tabulate class index against AGL statistics. Building and tree must show
-high mean AGL; water and road near zero.
-*Effort:* an hour once a sample of tiles is downloaded.
-
 ---
 
-## Not started — planned, nothing written yet
+## Built and running
 
-Listed so the repository's emptiness is not mistaken for progress. All of Phase 1 onward.
+| Item | Phase | State |
+|---|---|---|
+| `io_raster.py` + `tests/test_raster.py` | 1 | CRS/transform round-trip proven exact, 12 tests |
+| `backbone.py` — Depth Anything V2 | 1 | Runs on CUDA; Base default, Small/Large available |
+| `dsm.py` — orchestrator + provenance | 1 | One image in, GeoTIFF + sidecar out |
+| `mesh.py` — scene export for the viewer | 4 | manifest + float32 heightfield + texture |
+| Viewer loads a real scene | 4 | Texture draped, 3 cameras, probe, units badge |
+| `tools/fetch_datasets.py` | 0 | Resumable, retrying, keeps layers aligned |
+| `tools/resolve_class_legend.py` | 0 | Resolved D-04 from evidence |
+
+**End to end works on real imagery**: a GAMUS tile through Depth Anything V2 to a GeoTIFF
+with provenance, exported to a textured, navigable 3D scene.
+
+## Not started
 
 | Item | Phase | Note |
 |---|---|---|
-| `io_raster.py` + round-trip test | 1 | First code to be written. Everything sits on it. |
-| `ingest.py` GSD detect/normalise/tile | 1 | |
-| `backbone.py` Depth Anything V2 wrapper | 1 | Needs U-03 pinned |
-| Eval harness, both splits, all metrics | 1 | The measuring tool, before the model |
-| **Zero-shot baseline numbers** | 1 | The headline comparison depends on this existing |
+| `ingest.py` GSD normalise + tiling | 1 | Not needed yet; inputs so far are single 1024² tiles |
+| **Eval harness, both splits, all metrics** | 1 | `dsm.py` scores one tile; the harness is the real deliverable |
 | `srtm.py` with datum handling | 2 | See U-07 — the datum trap is tens of metres |
 | `shadow.py` | 2 | Our primary novelty. Blocked on D-03 for validation |
 | `gcp.py` | 2 | |
 | `calibrate.py` + confidence band | 2 | Band must be coverage-checked, not just emitted |
-| nDSM head + training | 3 | Needs D-01 and the GAMUS download |
+| nDSM head + training | 3 | Needs the GAMUS download to finish |
 | GSD degradation sweep → the refusal floor | 3 | The floor must be measured, not chosen |
-| Whole viewer | 4 | |
+| Overlays, validation view, upload UI | 4 | Viewer currently loads a pre-exported scene only |
+| `api.py` | 4 | No server yet; export is a CLI step |
 | Electron installers | 5 | |
+
+### D-05 · No absolute heights yet
+Phase 2 calibration does not exist, so **every output is relative**, including for a
+georeferenced input whose CRS is preserved. This is correct rather than unfinished — emitting
+metres before anything establishes a scale is the fabrication hard rules 1 and 2 exist to
+prevent — but it does mean G1's absolute path is not yet demonstrable.
 
 ---
 
@@ -128,4 +126,14 @@ MC-dropout or an ensemble would give a per-pixel uncertainty rather than a scene
 
 ## Resolved
 
-*(Nothing yet. Entries move here with the date and what fixed them.)*
+### D-01 · CUDA unavailable — **resolved 2026-09-15**
+torch had been installed as the CPU build on a machine with an RTX 4060. Reinstalling from
+the cu130 index gives torch 2.14.0+cu130 with CUDA available and 7.1 GiB VRAM free. A first
+Base-model inference on a 1024x1024 tile took 61 s including model load; steady-state
+timing not yet measured. `run.ps1 -Setup` installs torch from that index first, before
+requirements.txt, so the CPU wheel cannot win the race again.
+
+### D-04 · GAMUS class legend unknown — **resolved 2026-09-15**
+Determined from evidence by `tools/resolve_class_legend.py`; see U-01 for the four checks.
+Sample size 3 tiles, recorded in config as `GAMUS_CLASS_LEGEND_TILES`.
+

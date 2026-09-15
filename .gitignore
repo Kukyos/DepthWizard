@@ -47,3 +47,6 @@ Thumbs.db
 
 # draft submission material, local only
 submission/
+
+# generated scene exports for the viewer -- rebuilt by depthwizard.mesh
+viewer/public/scene/

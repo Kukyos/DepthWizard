@@ -22,6 +22,7 @@ import { Vector3, Color3, Color4 } from "@babylonjs/core/Maths/math";
 import { VertexData } from "@babylonjs/core/Meshes/mesh.vertexData";
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
+import { Texture } from "@babylonjs/core/Materials/Textures/texture";
 import type { Camera } from "@babylonjs/core/Cameras/camera";
 // Side-effect import. Babylon's tree-shaken build leaves Ray out unless it is pulled in
 // explicitly, and without it scene.pick silently returns nothing -- which is the height
@@ -42,6 +43,35 @@ interface SceneManifest {
   gsdOutM: number | null;
   objectsResolvable: boolean;
   confidenceM: number | null;
+  meshSize?: number;
+  heightFile?: string | null;
+  textureFile?: string | null;
+  verticalRange?: [number, number];
+}
+
+/** Fetch a scene exported by `python -m depthwizard.mesh`.
+ *
+ *  Returns null when there is none, so the viewer falls back to synthetic scenery rather
+ *  than showing an error to someone who simply has not run the pipeline yet. Same-origin
+ *  only: hard rule 6 forbids reaching off the machine. */
+async function loadScene(
+  base = "scene",
+): Promise<{ manifest: SceneManifest; heights: Float32Array } | null> {
+  try {
+    const response = await fetch(`${base}/manifest.json`);
+    if (!response.ok) return null;
+    const manifest = (await response.json()) as SceneManifest;
+    if (!manifest.heightFile || !manifest.meshSize) return null;
+    const buffer = await (await fetch(`${base}/${manifest.heightFile}`)).arrayBuffer();
+    const heights = new Float32Array(buffer);
+    if (heights.length !== manifest.meshSize * manifest.meshSize) {
+      console.error("height.bin does not match meshSize; ignoring scene");
+      return null;
+    }
+    return { manifest, heights };
+  } catch {
+    return null;
+  }
 }
 
 const el = <T extends HTMLElement>(id: string): T => {
@@ -198,39 +228,69 @@ function makeCameras(scene: Scene): Record<CameraKind, Camera> {
 
 // --------------------------------------------------------------------------- main
 
-function main(): void {
+async function main(): Promise<void> {
   const canvas = el<HTMLCanvasElement>("canvas");
   const engine = new Engine(canvas, true, { preserveDrawingBuffer: true, stencil: true });
   const scene = new Scene(engine);
   scene.clearColor = new Color4(0.05, 0.07, 0.09, 1);
 
-  // No server yet, so the scene declares itself relative. Metres are earned from a CRS,
-  // never assumed — which is also the correct default for the non-georeferenced path.
-  const manifest: SceneManifest = {
-    id: "placeholder",
+  // Metres are earned from a CRS, never assumed — so the fallback declares itself
+  // relative, which is also the correct state for the non-georeferenced path.
+  const loaded = await loadScene();
+  const manifest: SceneManifest = loaded?.manifest ?? {
+    id: "synthetic placeholder",
     units: "relative_unitless",
     gsdOutM: null,
     objectsResolvable: true,
     confidenceM: null,
   };
   applyUnits(manifest);
+  el("r-scene").textContent = loaded ? manifest.id : "synthetic placeholder";
 
   // A low sun angle is deliberate: raking light is what makes relief legible on terrain,
   // and it is the same cue the shadow anchor exploits (docs/05-domain-reference.md).
   const sky = new HemisphericLight("sky", new Vector3(0, 1, 0), scene);
-  sky.intensity = 0.75;
-  sky.groundColor = new Color3(0.16, 0.18, 0.22);
+  sky.intensity = 1.25;
+  sky.groundColor = new Color3(0.3, 0.32, 0.36);
   const sun = new DirectionalLight("sun", new Vector3(-0.6, -0.55, 0.55), scene);
-  sun.intensity = 1.5;
+  sun.intensity = 1.1;
 
-  const size = 192;
-  const terrain = heightFieldMesh("terrain", syntheticField(size), size, 300, scene);
+  const EXTENT = 300;
+  const size = loaded ? (manifest.meshSize as number) : 192;
+  // A relative field spans 0..1, which is invisible against a 300-unit extent. Exaggeration
+  // is applied explicitly and reported in the UI — never silently, since a silent factor
+  // would make every height on screen a lie.
+  const [lo, hi] = manifest.verticalRange ?? [0, 1];
+  const span = Math.max(hi - lo, 1e-6);
+  const exaggeration = loaded ? (EXTENT * 0.12) / span : 1;
+  const field = loaded
+    ? Float32Array.from(loaded.heights, (h) => (h - lo) * exaggeration)
+    : syntheticField(size);
+
+  const terrain = heightFieldMesh("terrain", field, size, EXTENT, scene);
   const material = new StandardMaterial("terrain", scene);
-  material.diffuseColor = new Color3(0.62, 0.66, 0.70);
   material.specularColor = new Color3(0.04, 0.04, 0.04);
-  // Backface lighting, so the mesh never reads as a black hole from below.
   material.backFaceCulling = false;
+  if (loaded && manifest.textureFile) {
+    // The optical image draped over the geometry. Projection accuracy is the first thing
+    // the evaluation criteria name, so the UVs map 1:1 to the source grid with no offset.
+    const texture = new Texture(`scene/${manifest.textureFile}`, scene, false, false);
+    texture.wrapU = Texture.CLAMP_ADDRESSMODE;
+    texture.wrapV = Texture.CLAMP_ADDRESSMODE;
+    material.diffuseTexture = texture;
+    material.diffuseColor = new Color3(1, 1, 1);
+    // Satellite imagery is often dark (this scene is winter, mean RGB ~87,77,67). An
+    // emissive copy keeps the photo readable while the directional light still shades the
+    // relief, so the terrain reads as 3D rather than as a flat unlit map.
+    material.emissiveTexture = texture;
+    material.linkEmissiveWithDiffuse = false;
+  } else {
+    material.diffuseColor = new Color3(0.62, 0.66, 0.70);
+  }
   terrain.material = material;
+  if (loaded) {
+    el("r-exag").textContent = `${exaggeration.toFixed(1)}x (display only)`;
+  }
 
   const cameras = makeCameras(scene);
   const order: CameraKind[] = ["orbit", "fly", "ground"];
@@ -262,12 +322,19 @@ function main(): void {
   // Phase 4 should distinguish click from drag once the readout means something.
   canvas.addEventListener("pointerdown", (event) => {
     const hit = scene.pick(event.offsetX, event.offsetY);
-    el("r-height").textContent =
-      hit?.hit && hit.pickedPoint ? formatHeight(hit.pickedPoint.y, manifest) : "—";
+    if (!hit?.hit || !hit.pickedPoint) {
+      el("r-height").textContent = "—";
+      return;
+    }
+    // Undo the display exaggeration: the readout must be the value stored in the DSM, not
+    // the one the mesh was stretched to. Reporting the stretched number would be wrong by
+    // a factor nobody could see.
+    const stored = hit.pickedPoint.y / exaggeration + lo;
+    el("r-height").textContent = formatHeight(stored, manifest);
   });
 
   engine.runRenderLoop(() => scene.render());
   window.addEventListener("resize", () => engine.resize());
 }
 
-main();
+void main();

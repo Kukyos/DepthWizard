@@ -7,11 +7,11 @@ Convention: anything here is marked `PLACEHOLDER` in the code — structurally p
 visibly unsourced. When a value is sourced, it moves out of this file and gains a
 `provenance` field.
 
-Status as of **2026-09-11**. Nothing in this project has been measured yet.
+Status as of **2026-09-15**.
 
 ---
 
-## U-01 — GAMUS class index → class name mapping
+## ~~U-01~~ — GAMUS class index → class name mapping · **RESOLVED 2026-09-15**
 **Blocks:** semantic priors as a calibration route (brief milestone 2); landscape labelling,
 and therefore the stratified reporting G3 requires.
 
@@ -24,7 +24,17 @@ named classes.
 order. The official loader (`EarthNets/RSI-MMSegmentation/gamus_dataset.py`) passes the array
 through without a legend.
 
-**Current state:** `PLACEHOLDER` in code. Not guessed.
+**Resolved.** `tools/resolve_class_legend.py` profiles each index against height, colour
+and area. The paper's listed order holds, confirmed on four independent checks: index 3 is
+the only near-neutral surface (roofs) at 4.5-7.9 m median AGL; index 5 forms the connected
+street network at 0 m; index 6 sits at 10-26 m and is brown rather than green because the
+imagery is leaf-off winter; index 4 appears only at the -5 m clamp, which is what water
+does to LiDAR returns. Index 0 is unlabelled background at <0.2%, not one of the six.
+
+Written into `config.GAMUS_CLASS_NAMES`. **Sample size 3 tiles** — recorded as
+`GAMUS_CLASS_LEGEND_TILES` and to be quoted alongside any metric that rests on it.
+The `ground` / `low-vegetation` pair is the least distinctive and is held on the paper's
+order rather than on evidence.
 
 **How to source it.** Empirically, from the data itself: cross-tabulate class index against
 measured AGL statistics over a sample of tiles. `building` and `tree` must show high mean AGL;
@@ -53,11 +63,14 @@ and state the assumption explicitly wherever the floor is quoted.
 
 ---
 
-## U-03 — Depth Anything V2 checkpoint identifier and weights hash
+## ~~U-03~~ — Depth Anything V2 checkpoint · **PARTLY RESOLVED 2026-09-15**
 **Blocks:** hard rule 3 — provenance completeness. Every DSM must record which weights produced
 it.
 
-**Current state:** not yet downloaded, so not yet pinned.
+**Partly resolved.** Checkpoint IDs verified present on the Hub and pinned by name in
+`backbone.CHECKPOINTS` (Small/Base/Large `-hf`); Base is the default and has been run.
+The commit hash is captured into provenance at load time. Still to do: pin an explicit
+revision rather than tracking the branch head.
 
 **How to source it.** Phase 0 downloads it; record the exact checkpoint identifier and the file
 hash in `config.py` and in every provenance record. Pin the version — "latest" is not a

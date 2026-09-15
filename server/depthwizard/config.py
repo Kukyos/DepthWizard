@@ -105,12 +105,35 @@ GAMUS_CITIES: tuple[str, ...] = ("DC", "NYC", "PHL")   # the HF mirror; paper li
 # valid-but-clamped until measured across many tiles.
 GAMUS_AGL_CLAMP_M = -5.0
 
-# PLACEHOLDER: the paper names six classes -- ground, low-vegetation, building, water,
-# road, tree -- but not their integer order, and the official loader carries no legend.
-# Inspection finds seven values, 0..6. Resolve empirically by cross-tabulating class
-# index against AGL statistics. See U-01 / D-04. Not guessed.
-GAMUS_CLASS_NAMES: dict[int, str] = {}
-GAMUS_CLASS_LEGEND_IS_PLACEHOLDER = True
+# Resolved empirically on 2026-09-15 from 3 val tiles (tools/resolve_class_legend.py).
+# The paper names six classes but not their order; the indices below are the paper's listed
+# order, which four independent checks confirm rather than assume:
+#
+#   3  roofs are the only near-neutral surface in the scene (B-R = -2 to -3.5) and sit at
+#      4.5-7.9 m median AGL -- house height
+#   5  forms the connected linear street network in the class map, at 0.0 m median AGL
+#   6  10-26 m median AGL, brown not green because the imagery is leaf-off winter
+#   4  appears only at the -5 m AGL clamp, which is what water does to LiDAR returns
+#
+# 1 vs 2 (ground vs low-vegetation) is the least distinctive pair: both sit at ~0 m and
+# differ mainly in brightness. Held as the paper's order; recheck if a metric depends on
+# separating them. 0 is not one of the six named classes and appears at <0.2% -- treated
+# as unlabelled background, not silently merged into ground.
+GAMUS_CLASS_NAMES: dict[int, str] = {
+    0: "background",
+    1: "ground",
+    2: "low-vegetation",
+    3: "building",
+    4: "water",
+    5: "road",
+    6: "tree",
+}
+GAMUS_CLASS_LEGEND_IS_PLACEHOLDER = False
+# Sample size behind the legend above. Small; state it alongside any metric that rests on
+# the legend rather than letting 3 tiles read as settled fact.
+GAMUS_CLASS_LEGEND_TILES = 3
+GAMUS_BUILDING_CLASS = 3          # for building-only RMSE (docs/04-targets.md)
+GAMUS_BACKGROUND_CLASS = 0        # excluded from metrics
 
 
 # ------------------------------------------------------------------------- outputs
