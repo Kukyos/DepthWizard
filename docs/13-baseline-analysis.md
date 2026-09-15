@@ -144,6 +144,54 @@ So this is not ordinary domain shift in *appearance*. It is shift in the **targe
 and an L1 loss will happily learn the training city's height prior as if it were a property
 of the world.
 
+## The held-out comparison, measured
+
+Same 30 Washington DC tiles, scored twice. The fine-tuned decoder saw only Philadelphia, so
+every one of these tiles is genuinely held out.
+
+**Correlation with LiDAR (scale-free, so both configurations are comparable):**
+
+| Scope | zero-shot | fine-tuned | change |
+|---|---|---|---|
+| All pixels | +0.236 | **+0.556** | 2.4x |
+| Building | +0.389 | +0.410 | ~flat |
+| Tree | +0.015 | **+0.397** | from nothing |
+
+The gain is almost entirely **canopy**. Buildings barely move, because the frozen backbone
+already had signal there. What fine-tuning bought was vegetation height, which zero-shot had
+no purchase on at all — and since canopy is about half the pixels, that is what lifts the
+pooled figure.
+
+**Absolute error in metres** (defined only for the fine-tuned path, which regresses metres
+directly):
+
+| Scope | RMSE | MAE | bias | delta-1 |
+|---|---|---|---|---|
+| Ground | 1.51 m | 0.69 m | +0.55 m | 0.100 |
+| Low vegetation | 1.70 m | 1.07 m | +0.47 m | 0.119 |
+| Road | 4.72 m | 2.57 m | −1.70 m | 0.058 |
+| Building | 5.69 m | 3.92 m | −3.18 m | 0.265 |
+| Tree | 15.36 m | 13.66 m | **−13.61 m** | 0.031 |
+| **All pixels** | **9.23 m** | 6.73 m | **−6.18 m** | 0.107 |
+
+## The bias is the finding, and it is the fixable kind
+
+Look at bias against RMSE. On trees, bias is −13.61 m and RMSE is 15.36 m: **almost the
+entire error is a constant offset**, not scatter. The same holds pooled, −6.18 m of 9.23 m.
+
+That is precisely what the height-distribution table predicts. Trained on Philadelphia, where
+the mean surface sits 2.07 m above ground, the decoder learned that prior and applies it to
+DC, where the mean is 6.21 m. It is not confused about *where* things are tall — correlation
+is +0.56 — it is confidently short about *how* tall.
+
+This matters because bias and scatter fail differently. Scatter is a model limit and needs a
+better model. **A constant offset is a calibration error, and calibration is exactly what
+Phase 2 is for.** An SRTM, shadow or GCP anchor estimates a scene-level offset and would
+remove most of the 6.18 m without touching the network.
+
+Ground at 1.51 m RMSE and +0.55 m bias is genuinely good, and worth noting: where the two
+cities agree about what the surface looks like, the model is accurate.
+
 ## What this means for the submission
 
 1. **It vindicates quoting the leave-one-city-out number** (D9). Had we reported the
