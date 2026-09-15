@@ -51,6 +51,8 @@ interface SceneManifest {
   textureFile?: string | null;
   verticalRange?: [number, number];
   overlays?: Record<string, string>;
+  gsdVerified?: boolean;
+  gsdAssumedM?: number | null;
 }
 
 /** Fetch a scene exported by `python -m depthwizard.mesh`.
@@ -114,7 +116,16 @@ function applyUnits(manifest: SceneManifest): void {
   const parts = [manifest.units === "metres_agl"
     ? "metres above ground"
     : "metres above sea level"];
-  if (manifest.gsdOutM !== null) parts.push(`${manifest.gsdOutM.toFixed(2)} m/px`);
+  if (manifest.gsdOutM !== null && manifest.gsdOutM !== undefined) {
+    parts.push(`${manifest.gsdOutM.toFixed(2)} m/px`);
+  }
+  // Metres from an image with no stated pixel size are conditional on a guess about that
+  // pixel size, and are wrong in proportion if the guess is. Say so on the badge rather
+  // than presenting them as measured.
+  if (manifest.gsdVerified === false) {
+    const assumed = manifest.gsdAssumedM ?? 0.33;
+    parts.push(`scale UNVERIFIED — assumes ${assumed} m/px`);
+  }
   if (!manifest.objectsResolvable) parts.push("terrain only — objects not resolvable");
   label.textContent = parts.join(" · ");
 }
@@ -131,7 +142,8 @@ function formatHeight(value: number, manifest: SceneManifest): string {
   }
   const band = manifest.confidenceM === null ? "" : ` ± ${manifest.confidenceM.toFixed(1)}`;
   const datum = manifest.units === "metres_agl" ? " AGL" : " ASL";
-  return `${value.toFixed(1)}${band} m${datum}`;
+  const caveat = manifest.gsdVerified === false ? " (scale unverified)" : "";
+  return `${value.toFixed(1)}${band} m${datum}${caveat}`;
 }
 
 // ------------------------------------------------------------------ placeholder mesh

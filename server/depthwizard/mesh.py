@@ -31,7 +31,10 @@ import numpy as np
 from . import config, io_raster
 from .overlays import build_overlays, error_statistics
 
-DEFAULT_MESH_SIZE = 512
+# 1024 keeps the mesh at the DSM's own resolution. 512 halved it, which threw away
+# exactly the edge detail the tiled + edge-refined inference exists to recover.
+# A million vertices is comfortable for one tile; large rasters will need LOD.
+DEFAULT_MESH_SIZE = 1024
 
 
 def _resample(field: np.ndarray, size: int) -> np.ndarray:
@@ -106,6 +109,8 @@ def export(
                        if reference is not None else None),
         "verticalRange": [float(clean.min()), float(clean.max())],
         "gsdOutM": provenance.get("gsd_in_m"),
+        "gsdVerified": provenance.get("gsd_verified", True),
+        "gsdAssumedM": provenance.get("gsd_assumed_m"),
         "objectsResolvable": provenance.get("objects_resolvable", True),
         "confidenceM": provenance.get("confidence_m"),
         "provenance": provenance,
